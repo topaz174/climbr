@@ -1,0 +1,265 @@
+1) Global layout + background
+
+Root container
+
+Size: 882 × 1822
+
+Background: solid very dark charcoal #1A1A1A
+
+No visible status bar content (top area is empty/dark).
+
+Section divider line (top)
+
+A faint 1px horizontal rule across full width:
+
+Frame: x=0, y=240, w=882, h=1
+
+Color: slightly lighter than bg (e.g. #212121), ~60–80% opacity (it’s subtle).
+
+2) Top “Mode” pill
+
+Pill container
+
+Frame: x=310, y=135, w=238, h=70
+
+Corner radius: 35 (fully rounded)
+
+Fill: ~#2C2C2C
+
+Border: 1px in slightly lighter gray (e.g. #3A3A3A) at low opacity
+
+Shadow: very soft (blur ~10–16, y-offset ~2–4, black at low opacity)
+
+Orange status dot
+
+Frame (tight bounds): x=347, y=165, w=12, h=12
+
+Shape: circle
+
+Color: orange ~#FF6A00 (in the screenshot it reads around #FD6500/#F97118 depending on antialias)
+
+Text: “Mode: Solo”
+
+Frame (tight bounds): x=379, y=162, w=132, h=20
+
+Color: light gray/near-white (≈ #E6E6E6)
+
+Font: system sans (SF Pro / Inter equivalent), Semibold, size visually ~22–26px
+
+Vertical alignment: centered within pill
+
+Spacing: dot-to-text gap is ~20–22px
+
+3) Central dial (outer rings + progress arc + inner image)
+3.1 Dial group bounds
+
+This whole circular module (including outer shadow ring) is a perfect square:
+
+Dial group frame
+
+x=131, y=367, w=592, h=592
+
+Center: (427, 663) (rounding; effectively centered on the screen)
+
+Outer radius: 296
+
+3.2 Inner circle (image)
+
+Inner image circle
+
+Frame: x=178, y=414, w=500, h=500
+
+Radius: 250
+
+Clip: circle mask
+
+Border: very thin subtle outline (≈1–2px) in dark gray (barely visible)
+
+Content (placeholder request)
+
+Put a static placeholder image inside this clipped circle:
+
+“Minimal Sisyphus pushing a boulder up a hill” (no animation required)
+
+Treat it as a single raster/vector asset fit-to-cover (center-crop) inside the circle.
+
+3.3 Ring stack (behind/around the inner circle)
+
+There are multiple dark concentric rings + soft vignette. Implement as:
+
+A soft radial shadow/vignette around the inner circle (blurred, subtle).
+
+One or two concentric strokes between the inner circle (500 diameter) and the dial group edge (592 diameter).
+
+A practical match:
+
+Outer faint ring stroke: diameter ~592, stroke ~10–14, color #000 with low opacity
+
+Inner faint ring stroke: diameter ~540–560, stroke ~6–10, color #2A2A2A low opacity
+(These are stylistic; the key is the dial reads as a dark layered bezel.)
+
+3.4 Progress track + active arc (orange)
+
+The orange segment sits on a ring outside the inner image.
+
+Progress ring (track path)
+
+Center: (428, 664) (use dial center)
+
+Radius: 288
+
+Diameter: 576
+
+Bounding frame: x=140, y=376, w=576, h=576
+
+Stroke thickness: ~18px
+
+Track color: dark gray (≈ #2A2A2A) at moderate opacity
+
+Stroke cap: round
+
+Active arc (orange)
+
+Same center/radius/thickness as track
+
+Color: orange ~#FF6A00 (reads like #F97118 in places)
+
+Stroke cap: round
+
+Angular span (matching screenshot):
+
+Using the common convention “0° at 3 o’clock, positive CCW”:
+
+Start ≈ 268°
+
+End ≈ 333°
+
+Equivalent description: a ~65° arc from just before 12 o’clock sweeping to about 1:30–2 o’clock.
+
+Glow: a soft outer glow/shadow on the arc (blur ~12–18, orange at low opacity).
+
+4) “FOCUS” label + timer
+4.1 Section label
+
+Text: “FOCUS”
+
+Frame (tight bounds): x=380, y=1101, w=93, h=18
+
+Alignment: centered horizontally (center x ≈ 426–441 region; visually centered under dial)
+
+Color: orange ~#FF6A00
+
+Font: system sans, Semibold, uppercase
+
+Add slight tracking/letter spacing (it looks spaced out)
+
+4.2 Main timer
+
+Text: “20:44”
+
+Frame (tight bounds): x=264, y=1165, w=342, h=108
+
+Color: near-white #F3F3F3
+
+Font: system sans, Light (or thin), very large (visual size ~110–130px)
+
+Alignment: centered
+
+5) Stats row (“TODAY… · THIS WEEK…”)
+
+Single centered line below the timer.
+
+Whole stats line (tight bounds)
+
+Frame: x=208, y=1462, w=436, h=14
+
+Color: medium gray ~#4D4D4D
+
+Font: system sans, Semibold, small (visual size ~14–16px), uppercase
+
+Exact text + spacing
+
+Left: TODAY: 45 MIN
+
+Middle: a small centered dot ·
+
+Right: THIS WEEK: 3H
+
+The three parts are on one baseline, horizontally centered as a unit.
+
+6) Bottom navigation bar + floating center button
+6.1 Nav region
+
+Visually it’s the same dark background but feels like a “nav zone” due to spacing + a faint divider and the big center button shadow.
+
+Top divider line for nav
+
+Very faint 1px horizontal rule across full width
+
+Visually appears just above the nav content (subtle; you can place around y≈1520–1530)
+
+Suggested frame: x=0, y=1520, w=882, h=1
+
+Color: slightly lighter than bg (e.g. #212121) low opacity
+
+6.2 Center floating action button
+
+White circular button
+
+Frame: x=363, y=1592, w=131, h=131
+
+Radius: 65.5
+
+Fill: #FFFFFF
+
+Shadow: strong soft shadow/glow beneath (blur ~30–50, black at low opacity)
+
+Icon inside: dark gray/near-black (≈ #1A1A1A) “history/clock” style glyph, centered
+
+6.3 Left nav item
+
+Icon (two-person outline)
+
+Frame: x=104, y=1651, w=44, h=38
+
+Color: gray ~#5E5E5E
+
+Stroke weight: thin/regular
+
+Label: “SQUADS”
+
+Frame: x=84, y=1690, w=87, h≈18 (tight bounds in screenshot span ~38px due to glyph extents)
+
+Color: same gray ~#5E5E5E
+
+Font: system sans, Semibold, small (~14–16px), uppercase, slight tracking
+
+Center the label under the icon.
+
+6.4 Right nav item
+
+Icon (single-person outline)
+
+Frame: x=713, y=1651, w=31, h=38
+
+Color: gray ~#5E5E5E
+
+Label: “PROFILE”
+
+Frame: x=686, y=1690, w=86, h≈18
+
+Same font/color treatment as SQUADS
+
+Center the label under the icon.
+
+Quick “constraints” summary (so it stays true when responsive)
+
+Pill is centered horizontally at the top.
+
+Dial group is centered horizontally; its frame is 592×592.
+
+“FOCUS” and the timer are centered under the dial.
+
+Stats line is centered under the timer.
+
+Bottom nav: left and right items sit in the left/right thirds; the center button is perfectly centered horizontally and overlaps the nav zone with a strong shadow.

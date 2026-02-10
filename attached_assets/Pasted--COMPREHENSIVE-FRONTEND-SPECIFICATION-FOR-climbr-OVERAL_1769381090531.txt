@@ -1,0 +1,104 @@
+## **COMPREHENSIVE FRONTEND SPECIFICATION FOR “climbr”**
+
+### **OVERALL APPLICATION STRUCTURE**
+
+The application is a full-screen, dark-themed focus timer with three primary navigation screens: Timer (main), Squads, and Profile. The app uses a bottom navigation bar with a prominent central timer button. The background throughout is a deep slate color (#1A1A1B). All text is white by default with grey accents for secondary information. The primary accent color for interactive elements is magma orange. Ensure all this stuff isnt hardcoded tediously but defined in a common file or something (along with all the other branding like fonts etc.). The goal is as little hardcoding as possible, maximizing efficiency
+
+Tech stack: react native+expo, ts, supabase (if that even matters for front end - u can ignore for now if u want), nativewind/tailwind
+
+---
+
+### **MAIN LAYOUT CONTAINER**
+
+- **Background**: Deep slate (#1A1A1B) covering the entire viewport
+- **Dimensions**: Full screen (100vw × 100vh)
+- **Layout**: Flex column with relative positioning
+- **Content Area**: Takes up full height minus the bottom navigation bar (approximately 80-85% of screen height depending on device)
+- **Navigation Bar**: Fixed to bottom, height of 96px (24 units in Tailwind), dark background with backdrop blur
+
+---
+
+### **BOTTOM NAVIGATION BAR**
+
+- **Position**: Fixed to bottom of screen (z-index: 30)
+- **Dimensions**: Full width, 96px (24 units) tall, 32px bottom padding (pb-4)
+- **Background**: Dark semi-transparent (#0a0a0a) at 80% opacity with backdrop blur (blur-xl)
+- **Border**: Top border only, 1px, white at 5% opacity
+- **Padding**: 32px horizontal (px-8), 32px bottom (pb-4)
+- **Layout**: Flexbox, space-between alignment, centered vertically
+- **Items**: Three tab buttons (left, center, right) with center button elevated
+
+### **Left Tab Button (Squads)**
+
+- **Position**: Flex column, centered
+- **Gap**: 4px between icon and label
+- **Icon**: User/people icon, 24px size
+- **Label**: "Squads" text, small size
+- **Colors**: White when active, white at 30% opacity when inactive
+- **Interaction**: Tap animates to scale 0.9
+
+### **Center Tab Button (Timer)**
+
+- **Position**: Relative, positioned -16px from bottom (raised up)
+- **Dimensions**: 64px × 64px (w-16 h-16)
+- **Background**: When active: white with drop shadow (0 0 20px rgba(255,255,255,0.2)); when inactive: white at 10% opacity
+- **Border Radius**: Fully rounded (rounded-full)
+- **Content**: Clock/timer icon, 32px size
+- **Text Color**: Black when active, white at 40% opacity when inactive
+- **Animation**: When active and timer is running, scales 1 → 1.1 → 1 continuously
+- **Interaction**: Tap animates to scale 0.9
+
+### **Right Tab Button (Profile)**
+
+- **Position**: Flex column, centered
+- **Gap**: 4px between icon and label
+- **Icon**: User profile icon, 24px size
+- **Label**: "Profile" text, small size
+- **Colors**: White when active, white at 30% opacity when inactive
+- **Interaction**: Tap animates to scale 0.9
+
+---
+
+### **TIMER SCREEN (MAIN/CENTRAL PAGE)**
+
+This is the default and primary screen.
+
+### **Top Section: Mode Selector**
+
+- **Visibility**: Only visible on the Timer screen
+- **Position**: Top-center of content area
+- **Styling**: Centered, no background
+- **Content**: "Mode: Solo" text (white, bold, medium size) or "Mode: Room" depending on selected session mode
+- **Interaction**: Tappable to open mode selection sheet
+
+### **Central Animation Area**
+
+- **Position**: Centered vertically and horizontally in the content area
+- **Dimensions**: 250px × 250px circular
+- **Background**: White
+- **Border**: 4px black border
+- **Border Radius**: Fully rounded (50%)
+- **Shadow**: Large drop shadow (shadow-2xl)
+- **Overflow**: Hidden to maintain circular shape
+- **Cursor**: Pointer
+- **Content**: SVG animation with stick figures climbing a hill
+
+### **SVG Animation Breakdown**
+
+- **Viewbox**: 0 0 200 200
+- **Hill Shape**: Curved path (bezier curve) creating a hill silhouette, filled black, positioned at bottom
+- **Boulder**: Black circle, radius 35, positioned to be tangent to the hill at center point
+- **Main Stick Figure**: Scaled 1.5x, centered at top of circle, black strokes
+    - Head: 5px radius circle
+    - Body: Vertical line from head downward
+    - Arms: Line extending outward
+    - Legs: Two lines at angles downward
+- **Secondary Figures** (Room mode only): 2 additional smaller figures (0.8x and 0.7x scale) positioned left of main figure with reduced opacity (0.6 and 0.4)
+- **Animation**: Figure climbs the hill and pushes the boulder when timer is running
+- **Overlay**: When timer is paused, a dark overlay (bg-black/40) appears with a Play/Pause icon (72px, white, 50% opacity)
+
+![image.png](attachment:e915031d-032d-4539-a95b-4a4b8a12a392:image.png)
+
+![image.png](attachment:c2824f86-436e-495c-a484-6addbf1b5c59:image.png)
+
+![image.png](attachment:338f2817-9dae-495d-b5fe-274b3c5e1df5:image.png)
