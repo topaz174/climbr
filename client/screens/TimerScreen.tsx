@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Dimensions, Modal, Animated as RNAnimated, Easing as RNEasing } from "react-native";
+import { View, Text, StyleSheet, Pressable, Dimensions, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
@@ -45,64 +45,6 @@ function OnboardingHandIndicator({ translateY }: OnboardingHandIndicatorProps) {
   );
 }
 
-interface MeterPopupProps {
-  x: number;
-  screenHeight: number;
-}
-
-function MeterPopup({ x, screenHeight }: MeterPopupProps) {
-  const opacity = useRef(new RNAnimated.Value(0)).current;
-  const translateY = useRef(new RNAnimated.Value(0)).current;
-
-  useEffect(() => {
-    RNAnimated.parallel([
-      RNAnimated.timing(opacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      RNAnimated.sequence([
-        RNAnimated.timing(translateY, {
-          toValue: 30,
-          duration: 800,
-          easing: RNEasing.out(RNEasing.quad),
-          useNativeDriver: true,
-        }),
-        RNAnimated.parallel([
-          RNAnimated.timing(translateY, {
-            toValue: 80,
-            duration: 1000,
-            easing: RNEasing.in(RNEasing.quad),
-            useNativeDriver: true,
-          }),
-          RNAnimated.timing(opacity, {
-            toValue: 0,
-            duration: 800,
-            delay: 200,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]),
-    ]).start();
-  }, []);
-
-  return (
-    <RNAnimated.View
-      style={[
-        styles.meterPopup,
-        {
-          left: x,
-          top: screenHeight * 0.4,
-          opacity,
-          transform: [{ translateY }],
-        },
-      ]}
-    >
-      <ThemedText style={styles.meterPopupText}>+1m</ThemedText>
-    </RNAnimated.View>
-  );
-}
-
 export default function TimerScreen() {
   const insets = useSafeAreaInsets();
   
@@ -126,8 +68,6 @@ export default function TimerScreen() {
   const [isFirstTime, setIsFirstTime] = useState(true);
   const prevPhaseRef = useRef(phase);
   const lastTapTimeRef = useRef(0);
-  const prevMetersRef = useRef(0);
-  const [meterPopups, setMeterPopups] = useState<Array<{ id: number; x: number }>>([]);
   const handTranslateY = useSharedValue(0);
 
   useEffect(() => {
@@ -163,29 +103,6 @@ export default function TimerScreen() {
       );
     }
   }, [isFirstTime, phase]);
-
-  useEffect(() => {
-    if (phase !== "climbing") {
-      prevMetersRef.current = 0;
-      return;
-    }
-
-    const currentMeters = Math.floor(sessionMeters);
-    const prevMeters = prevMetersRef.current;
-
-    if (currentMeters > prevMeters && currentMeters > 0) {
-      const newId = Date.now();
-      const randomX = SCREEN_WIDTH * 0.3 + Math.random() * SCREEN_WIDTH * 0.4;
-      
-      setMeterPopups((prev) => [...prev, { id: newId, x: randomX }]);
-
-      setTimeout(() => {
-        setMeterPopups((prev) => prev.filter((p) => p.id !== newId));
-      }, 2000);
-    }
-
-    prevMetersRef.current = currentMeters;
-  }, [sessionMeters, phase]);
 
   const handleStart = async () => {
     if (phase !== "idle") return;
@@ -267,9 +184,6 @@ export default function TimerScreen() {
       {/* DELETE DEVFEATURES COMPONENT BEFORE PRODUCTION */}
       <DevFeatures />
       
-      {meterPopups.map((popup) => (
-        <MeterPopup key={popup.id} x={popup.x} screenHeight={Dimensions.get("window").height} />
-      ))}
       <View style={styles.divider} />
 
       {/* Main content area - containing both circle and text for proper distribution */}
@@ -330,9 +244,9 @@ export default function TimerScreen() {
           </ThemedText>
           <ThemedText style={styles.timeText}>{formatTime(timeRemaining)}</ThemedText>
           <View style={styles.statsRow}>
-            <ThemedText style={styles.statText}>CURRENT: {formatAltitude(checkpointMeters + (phase === "climbing" || phase === "fall" ? sessionMeters : 0))}</ThemedText>
-            <ThemedText style={styles.statDot}>·</ThemedText>
-            <ThemedText style={styles.statText}>LIFETIME: {formatAltitude(lifetimeElevation)}</ThemedText>
+            <ThemedText style={styles.currentAltitudeText}>
+              CURRENT: {formatAltitude(checkpointMeters + (phase === "climbing" || phase === "fall" ? sessionMeters : 0))}
+            </ThemedText>
           </View>
         </View>
       </View>
@@ -533,20 +447,15 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    justifyContent: "center",
     marginTop: Spacing.xs,
   },
-  statText: {
+  currentAltitudeText: {
     color: "#4D4D4D",
-    fontSize: 11,
+    fontSize: 15,
     fontWeight: "600",
     letterSpacing: 1,
     textTransform: "uppercase",
-  },
-  statDot: {
-    color: "#4D4D4D",
-    fontSize: 16,
-    fontWeight: "600",
   },
   
   modalOverlay: {
@@ -617,17 +526,5 @@ const styles = StyleSheet.create({
     color: AppColors.text,
     fontSize: 16,
     fontWeight: "700",
-  },
-  meterPopup: {
-    position: "absolute",
-    zIndex: 1000,
-  },
-  meterPopupText: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#00D9FF",
-    textShadowColor: "rgba(0, 217, 255, 0.5)",
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 12,
   },
 });

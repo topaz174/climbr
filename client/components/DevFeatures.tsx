@@ -14,13 +14,13 @@ export function DevFeatures() {
 
   const handleAddTime = () => {
     if (phase === "climbing" || phase === "plateau") {
-      const newTime = timeRemaining + 30;
+      const newTime = Math.max(0, timeRemaining - 10);
       const endTimestamp = Date.now() + newTime * 1000;
       useTimerStore.setState({
         timeRemaining: newTime,
         endTimestamp,
       });
-      console.log("[DEV] Added 30 seconds to timer");
+      console.log("[DEV] Subtracted 10 seconds from timer");
     }
   };
 
@@ -30,7 +30,7 @@ export function DevFeatures() {
       onPress={handleAddTime}
       hitSlop={{ top: 20, right: 20, bottom: 20, left: 20 }}
     >
-      <Text style={styles.devButtonText}>+30s</Text>
+      <Text style={styles.devButtonText}>-10s</Text>
     </Pressable>
   );
 }
