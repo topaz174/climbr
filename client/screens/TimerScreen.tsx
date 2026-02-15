@@ -18,6 +18,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemedText } from "@/components/ThemedText";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
 import { useTimerStore } from "@/stores/timerStore";
+import { DevFeatures } from "@/components/DevFeatures"; // DELETE THIS LINE BEFORE PRODUCTION
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DIAL_SIZE = Math.min(SCREEN_WIDTH * 0.82, 380);
@@ -263,6 +264,9 @@ export default function TimerScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      {/* DELETE DEVFEATURES COMPONENT BEFORE PRODUCTION */}
+      <DevFeatures />
+      
       {meterPopups.map((popup) => (
         <MeterPopup key={popup.id} x={popup.x} screenHeight={Dimensions.get("window").height} />
       ))}
