@@ -11,11 +11,32 @@ import { queryClient } from "@/lib/query-client";
 
 import RootStackNavigator from "@/navigation/RootStackNavigator";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { TimerSync } from "@/components/TimerSync";
+import { useTimerStore } from "@/stores/timerStore";
 import { AppColors } from "@/constants/theme";
+
+function logStateChange(
+  appState: AppStateStatus,
+  timerPhase: string,
+  elapsedSec: string,
+  trigger: "appState" | "timerPhase"
+) {
+  console.log(
+    "[App] appState:",
+    appState,
+    "| timerPhase:",
+    timerPhase,
+    "|",
+    elapsedSec,
+    "s since last change",
+    "(" + trigger + ")"
+  );
+}
 
 export default function App() {
   const appState = useRef<AppStateStatus>(AppState.currentState);
   const lastChangeAt = useRef<number>(Date.now());
+  const prevTimerPhase = useRef(useTimerStore.getState().phase);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
@@ -23,9 +44,21 @@ export default function App() {
       const elapsedSec = ((now - lastChangeAt.current) / 1000).toFixed(3);
       appState.current = nextState;
       lastChangeAt.current = now;
-      console.log("[App] state:", nextState, "|", elapsedSec, "s since last change");
+      logStateChange(appState.current, useTimerStore.getState().phase, elapsedSec, "appState");
     });
     return () => sub.remove();
+  }, []);
+
+  useEffect(() => {
+    const unsub = useTimerStore.subscribe((state) => {
+      if (state.phase === prevTimerPhase.current) return;
+      const now = Date.now();
+      const elapsedSec = ((now - lastChangeAt.current) / 1000).toFixed(3);
+      lastChangeAt.current = now;
+      logStateChange(appState.current, state.phase, elapsedSec, "timerPhase");
+      prevTimerPhase.current = state.phase;
+    });
+    return unsub;
   }, []);
 
   return (
@@ -34,6 +67,7 @@ export default function App() {
         <SafeAreaProvider>
           <GestureHandlerRootView style={styles.root}>
             <KeyboardProvider>
+              <TimerSync />
               <NavigationContainer>
                 <RootStackNavigator />
               </NavigationContainer>

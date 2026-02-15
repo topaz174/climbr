@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { View, StyleSheet, Pressable, Dimensions, Modal, AppState, AppStateStatus } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
+import { View, Text, StyleSheet, Pressable, Dimensions, Modal, Animated as RNAnimated, Easing as RNEasing } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
@@ -17,6 +17,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { ThemedText } from "@/components/ThemedText";
 import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
+import { useTimerStore } from "@/stores/timerStore";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DIAL_SIZE = Math.min(SCREEN_WIDTH * 0.82, 380);
@@ -25,12 +26,6 @@ const PROGRESS_RING_RADIUS = (DIAL_SIZE / 2) - 8;
 const PROGRESS_STROKE_WIDTH = 12;
 const TAB_BAR_TOTAL_HEIGHT = 90;
 const FIRST_TIME_KEY = "@climbr_has_started_timer";
-const LOCK_BLIP_MS = 100;
-const RESET_AFTER_BACKGROUND_MS = 5000;
-const DEFAULT_FOCUS_SEC = 30 * 60;
-
-type SessionMode = "Solo" | "Room";
-type TimerPhase = "focus" | "break";
 
 interface OnboardingHandIndicatorProps {
   translateY: ReturnType<typeof useSharedValue<number>>;
@@ -49,74 +44,114 @@ function OnboardingHandIndicator({ translateY }: OnboardingHandIndicatorProps) {
   );
 }
 
-export default function TimerScreen() {
-  const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<SessionMode>("Solo");
-  const [isRunning, setIsRunning] = useState(false);
-  const [phase, setPhase] = useState<TimerPhase>("focus");
-  const [timeRemaining, setTimeRemaining] = useState(20 * 60 + 44);
-  const [totalTime, setTotalTime] = useState(25 * 60);
-  const [todayMinutes] = useState(45);
-  const [weekHours] = useState(3);
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [isFirstTime, setIsFirstTime] = useState(true);
-  
-  const lastTapRef = useRef<number>(0);
-  const [savedTimeRemaining, setSavedTimeRemaining] = useState<number | null>(null);
-  const [isInTestMode, setIsInTestMode] = useState(false);
+interface MeterPopupProps {
+  x: number;
+  screenHeight: number;
+}
 
-  const lastActiveAt = useRef<number>(Date.now());
-  const resetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
-  const handTranslateY = useSharedValue(0);
-  const handOpacity = useSharedValue(1);
+function MeterPopup({ x, screenHeight }: MeterPopupProps) {
+  const opacity = useRef(new RNAnimated.Value(0)).current;
+  const translateY = useRef(new RNAnimated.Value(0)).current;
 
   useEffect(() => {
-    const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
-      if (nextState === "active") {
-        lastActiveAt.current = Date.now();
-        if (resetTimeoutRef.current) {
-          clearTimeout(resetTimeoutRef.current);
-          resetTimeoutRef.current = null;
-        }
-        return;
-      }
-      if (nextState === "background") {
-        const msSinceActive = Date.now() - lastActiveAt.current;
-        if (msSinceActive > LOCK_BLIP_MS) {
-          resetTimeoutRef.current = setTimeout(() => {
-            resetTimeoutRef.current = null;
-            setIsRunning(false);
-            setPhase("focus");
-            setTotalTime(DEFAULT_FOCUS_SEC);
-            setTimeRemaining(DEFAULT_FOCUS_SEC);
-            setIsInTestMode(false);
-            setSavedTimeRemaining(null);
-          }, RESET_AFTER_BACKGROUND_MS);
-        }
-      }
-    });
-    return () => {
-      sub.remove();
-      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
-    };
+    RNAnimated.parallel([
+      RNAnimated.timing(opacity, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      RNAnimated.sequence([
+        RNAnimated.timing(translateY, {
+          toValue: 30,
+          duration: 800,
+          easing: RNEasing.out(RNEasing.quad),
+          useNativeDriver: true,
+        }),
+        RNAnimated.parallel([
+          RNAnimated.timing(translateY, {
+            toValue: 80,
+            duration: 1000,
+            easing: RNEasing.in(RNEasing.quad),
+            useNativeDriver: true,
+          }),
+          RNAnimated.timing(opacity, {
+            toValue: 0,
+            duration: 800,
+            delay: 200,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]),
+    ]).start();
   }, []);
 
+  return (
+    <RNAnimated.View
+      style={[
+        styles.meterPopup,
+        {
+          left: x,
+          top: screenHeight * 0.4,
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
+      <ThemedText style={styles.meterPopupText}>+1m</ThemedText>
+    </RNAnimated.View>
+  );
+}
+
+export default function TimerScreen() {
+  const insets = useSafeAreaInsets();
+  
+  const phase = useTimerStore((s) => s.phase);
+  const timeRemaining = useTimerStore((s) => s.timeRemaining);
+  const focusDuration = useTimerStore((s) => s.focusDuration);
+  const breakDuration = useTimerStore((s) => s.breakDuration);
+  const sessionMeters = useTimerStore((s) => s.sessionMeters);
+  const checkpointMeters = useTimerStore((s) => s.checkpointMeters);
+  const lifetimeElevation = useTimerStore((s) => s.lifetimeElevation);
+  const showGiveUpConfirmModal = useTimerStore((s) => s.showGiveUpConfirmModal);
+  const showFallModal = useTimerStore((s) => s.showFallModal);
+  const metersLostInFall = useTimerStore((s) => s.metersLostInFall);
+
+  const startSession = useTimerStore((s) => s.startSession);
+  const openGiveUpConfirm = useTimerStore((s) => s.openGiveUpConfirm);
+  const closeGiveUpConfirm = useTimerStore((s) => s.closeGiveUpConfirm);
+  const confirmGiveUp = useTimerStore((s) => s.confirmGiveUp);
+  const confirmProgressLost = useTimerStore((s) => s.confirmProgressLost);
+
+  const [isFirstTime, setIsFirstTime] = useState(true);
+  const prevPhaseRef = useRef(phase);
+  const lastTapTimeRef = useRef(0);
+  const prevMetersRef = useRef(0);
+  const [meterPopups, setMeterPopups] = useState<Array<{ id: number; x: number }>>([]);
+  const handTranslateY = useSharedValue(0);
+
   useEffect(() => {
-    const checkFirstTime = async () => {
+    (async () => {
       try {
         const hasStarted = await AsyncStorage.getItem(FIRST_TIME_KEY);
         setIsFirstTime(hasStarted === null);
       } catch (error) {
         console.error("Error checking first time:", error);
       }
-    };
-    
-    checkFirstTime();
+    })();
   }, []);
 
   useEffect(() => {
-    if (isFirstTime && !isRunning) {
+    if (phase === "plateau" && prevPhaseRef.current === "climbing") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    if (phase === "idle" && prevPhaseRef.current === "plateau") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    prevPhaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
+    if (isFirstTime && phase === "idle") {
       handTranslateY.value = withRepeat(
         withSequence(
           withTiming(-15, { duration: 600, easing: Easing.inOut(Easing.ease) }),
@@ -126,12 +161,35 @@ export default function TimerScreen() {
         false
       );
     }
-  }, [isFirstTime, isRunning]);
+  }, [isFirstTime, phase]);
 
-  const toggleTimer = useCallback(async () => {
+  useEffect(() => {
+    if (phase !== "climbing") {
+      prevMetersRef.current = 0;
+      return;
+    }
+
+    const currentMeters = Math.floor(sessionMeters);
+    const prevMeters = prevMetersRef.current;
+
+    if (currentMeters > prevMeters && currentMeters > 0) {
+      const newId = Date.now();
+      const randomX = SCREEN_WIDTH * 0.3 + Math.random() * SCREEN_WIDTH * 0.4;
+      
+      setMeterPopups((prev) => [...prev, { id: newId, x: randomX }]);
+
+      setTimeout(() => {
+        setMeterPopups((prev) => prev.filter((p) => p.id !== newId));
+      }, 2000);
+    }
+
+    prevMetersRef.current = currentMeters;
+  }, [sessionMeters, phase]);
+
+  const handleStart = async () => {
+    if (phase !== "idle") return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    
-    if (isFirstTime && !isRunning) {
+    if (isFirstTime) {
       try {
         await AsyncStorage.setItem(FIRST_TIME_KEY, "true");
         setIsFirstTime(false);
@@ -139,81 +197,46 @@ export default function TimerScreen() {
         console.error("Error saving first time:", error);
       }
     }
-    
-    setIsRunning((prev) => !prev);
-  }, [isFirstTime, isRunning]);
+    await startSession();
+  };
 
-  const handleLongPress = useCallback(() => {
+  const handleDialPress = () => {
+    if (phase === "idle") {
+      handleStart();
+      return;
+    }
+    if (phase === "climbing") {
+      const now = Date.now();
+      if (now - lastTapTimeRef.current < 300) {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+        openGiveUpConfirm();
+        lastTapTimeRef.current = 0;
+        return;
+      }
+      lastTapTimeRef.current = now;
+    }
+  };
+
+  const handleLongPress = () => {
+    if (phase !== "climbing") return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    setTimeout(() => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }, 50);
-    setTimeout(() => {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    }, 100);
-    setShowResetModal(true);
-  }, []);
+    openGiveUpConfirm();
+  };
 
-  const handleReset = useCallback(() => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setIsRunning(false);
-    setPhase("focus");
-    setTotalTime(25 * 60);
-    setTimeRemaining(25 * 60);
-    setIsInTestMode(false);
-    setSavedTimeRemaining(null);
-    setShowResetModal(false);
-  }, []);
-
-  const handleCancelReset = useCallback(() => {
+  const handleGiveUpConfirmCancel = () => {
     Haptics.selectionAsync();
-    setShowResetModal(false);
-  }, []);
+    closeGiveUpConfirm();
+  };
 
-  const handleDoubleTap = useCallback(() => {
-    const now = Date.now();
-    const timeSinceLastTap = now - lastTapRef.current;
-    
-    if (timeSinceLastTap < 300) {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      
-      if (isInTestMode) {
-        setTimeRemaining(savedTimeRemaining!);
-        setIsInTestMode(false);
-        setSavedTimeRemaining(null);
-      } else {
-        setSavedTimeRemaining(timeRemaining);
-        setTimeRemaining(5);
-        setIsInTestMode(true);
-      }
-    }
-    
-    lastTapRef.current = now;
-  }, [isInTestMode, savedTimeRemaining, timeRemaining]);
+  const handleGiveUpConfirmRestart = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    confirmGiveUp();
+  };
 
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-    if (isRunning && timeRemaining > 0) {
-      interval = setInterval(() => {
-        setTimeRemaining((prev) => Math.max(0, prev - 1));
-      }, 1000);
-    } else if (timeRemaining === 0 && isRunning) {
-      if (phase === "focus") {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setPhase("break");
-        setTotalTime(5 * 60);
-        setTimeRemaining(5 * 60);
-        setIsInTestMode(false);
-        setSavedTimeRemaining(null);
-      } else {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        setIsRunning(false);
-      }
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isRunning, timeRemaining, phase]);
+  const handleProgressLostConfirm = () => {
+    Haptics.selectionAsync();
+    confirmProgressLost();
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -221,33 +244,35 @@ export default function TimerScreen() {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const progress = 1 - timeRemaining / totalTime;
+  const formatAltitude = (meters: number) => {
+    return `${Math.floor(meters)}m`;
+  };
+
+  // Calculate progress based on current phase
+  const totalDuration = phase === "plateau" ? breakDuration : focusDuration;
+  const progress = 1 - timeRemaining / totalDuration;
   const circumference = 2 * Math.PI * PROGRESS_RING_RADIUS;
   const strokeDashoffset = circumference * (1 - progress);
 
-  return (
-    <Pressable style={[styles.container, { paddingTop: insets.top }]} onPress={handleDoubleTap}>
-      {/* Mode Pill - positioned with flex */}
-      <View style={styles.pillSection}>
-        <Pressable
-          style={styles.modeSelector}
-          onPress={() => {
-            Haptics.selectionAsync();
-            setMode(mode === "Solo" ? "Room" : "Solo");
-          }}
-        >
-          <View style={styles.modeDot} />
-          <ThemedText style={styles.modeText}>Mode: {mode}</ThemedText>
-        </Pressable>
-      </View>
+  // Phase labels per PRD
+  const getPhaseLabel = () => {
+    if (phase === "climbing") return "FOCUS";
+    if (phase === "plateau") return "BREAK";
+    return "FOCUS";
+  };
 
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      {meterPopups.map((popup) => (
+        <MeterPopup key={popup.id} x={popup.x} screenHeight={Dimensions.get("window").height} />
+      ))}
       <View style={styles.divider} />
 
       {/* Main content area - containing both circle and text for proper distribution */}
       <View style={styles.contentContainer}>
         <Pressable
-          onPress={toggleTimer}
-          onLongPress={handleLongPress}
+          onPress={handleDialPress}
+          onLongPress={phase === "climbing" ? handleLongPress : undefined}
           delayLongPress={600}
           pressRetentionOffset={{ top: 50, left: 50, right: 50, bottom: 50 }}
           style={styles.dialWrapper}
@@ -283,12 +308,12 @@ export default function TimerScreen() {
           </Svg>
 
           <View style={styles.innerCircle}>
-            {!isRunning && !isFirstTime ? (
+            {phase === "idle" && !isFirstTime ? (
               <View style={styles.pauseOverlay}>
                 <Feather name="play" size={72} color="rgba(255, 255, 255, 0.5)" />
               </View>
             ) : null}
-            {!isRunning && isFirstTime ? (
+            {phase === "idle" && isFirstTime ? (
               <OnboardingHandIndicator translateY={handTranslateY} />
             ) : null}
           </View>
@@ -296,51 +321,76 @@ export default function TimerScreen() {
 
         {/* Text section - positioned relative to circle and footer */}
         <View style={styles.textSection}>
-          <ThemedText style={[styles.focusLabel, phase === "break" && styles.breakLabel]}>
-            {phase === "focus" ? "FOCUS" : "BREAK"}
+          <ThemedText style={[styles.focusLabel, phase === "plateau" && styles.breakLabel]}>
+            {getPhaseLabel()}
           </ThemedText>
           <ThemedText style={styles.timeText}>{formatTime(timeRemaining)}</ThemedText>
           <View style={styles.statsRow}>
-            <ThemedText style={styles.statText}>TODAY: {todayMinutes} MIN</ThemedText>
+            <ThemedText style={styles.statText}>CURRENT: {formatAltitude(checkpointMeters + (phase === "climbing" || phase === "fall" ? sessionMeters : 0))}</ThemedText>
             <ThemedText style={styles.statDot}>·</ThemedText>
-            <ThemedText style={styles.statText}>THIS WEEK: {weekHours}H</ThemedText>
+            <ThemedText style={styles.statText}>LIFETIME: {formatAltitude(lifetimeElevation)}</ThemedText>
           </View>
         </View>
       </View>
 
       <Modal
-        visible={showResetModal}
+        visible={showGiveUpConfirmModal}
         transparent
         animationType="fade"
-        onRequestClose={handleCancelReset}
+        onRequestClose={handleGiveUpConfirmCancel}
       >
         <View style={styles.modalOverlay}>
           <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
           <View style={styles.modalContent}>
             <Feather name="alert-circle" size={48} color={AppColors.primary} />
-            <ThemedText style={styles.modalTitle}>Give Up?</ThemedText>
+            <ThemedText style={styles.modalTitle}>Give up?</ThemedText>
             <ThemedText style={styles.modalMessage}>
-              Are you sure you want to reset? You'll go back to your last checkpoint.
+              Are you sure? You'll lose this climb and go back to your last checkpoint.
             </ThemedText>
-            
             <View style={styles.modalButtons}>
               <Pressable
                 style={[styles.modalButton, styles.modalButtonCancel]}
-                onPress={handleCancelReset}
+                onPress={handleGiveUpConfirmCancel}
               >
-                <ThemedText style={styles.modalButtonTextCancel}>Keep Going</ThemedText>
+                <ThemedText style={styles.modalButtonTextCancel}>Cancel</ThemedText>
               </Pressable>
               <Pressable
                 style={[styles.modalButton, styles.modalButtonConfirm]}
-                onPress={handleReset}
+                onPress={handleGiveUpConfirmRestart}
               >
-                <ThemedText style={styles.modalButtonTextConfirm}>Reset</ThemedText>
+                <ThemedText style={styles.modalButtonTextConfirm}>Give up</ThemedText>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
-    </Pressable>
+
+      <Modal
+        visible={showFallModal}
+        transparent
+        animationType="fade"
+        onRequestClose={handleProgressLostConfirm}
+      >
+        <View style={styles.modalOverlay}>
+          <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFill} />
+          <View style={styles.modalContent}>
+            <Feather name="alert-circle" size={48} color={AppColors.primary} />
+            <ThemedText style={styles.modalTitle}>Session lost</ThemedText>
+            <ThemedText style={styles.modalMessage}>
+              You lost {formatAltitude(metersLostInFall)} of progress. You're back at your last checkpoint.
+            </ThemedText>
+            <View style={styles.modalOkButtonWrap}>
+              <Pressable
+                style={[styles.modalButtonConfirm, styles.modalOkButton]}
+                onPress={handleProgressLostConfirm}
+              >
+                <Text style={styles.modalButtonTextConfirm}>OK</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -535,6 +585,17 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     alignItems: "center",
   },
+  modalOkButtonWrap: {
+    marginTop: Spacing.lg,
+    alignItems: "center",
+  },
+  modalOkButton: {
+    paddingHorizontal: Spacing["2xl"],
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   modalButtonCancel: {
     backgroundColor: AppColors.cardBackgroundLight,
     borderWidth: 1,
@@ -552,5 +613,17 @@ const styles = StyleSheet.create({
     color: AppColors.text,
     fontSize: 16,
     fontWeight: "700",
+  },
+  meterPopup: {
+    position: "absolute",
+    zIndex: 1000,
+  },
+  meterPopupText: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#00D9FF",
+    textShadowColor: "rgba(0, 217, 255, 0.5)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
   },
 });
