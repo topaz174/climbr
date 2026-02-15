@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { AppState, AppStateStatus, StyleSheet } from "react-native";
 import { NavigationContainer } from "@react-navigation/native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -66,13 +67,15 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
           <GestureHandlerRootView style={styles.root}>
-            <KeyboardProvider>
-              <TimerSync />
-              <NavigationContainer>
-                <RootStackNavigator />
-              </NavigationContainer>
-              <StatusBar style="light" />
-            </KeyboardProvider>
+            <BottomSheetModalProvider>
+              <KeyboardProvider>
+                <TimerSync />
+                <NavigationContainer>
+                  <RootStackNavigator />
+                </NavigationContainer>
+                <StatusBar style="light" />
+              </KeyboardProvider>
+            </BottomSheetModalProvider>
           </GestureHandlerRootView>
         </SafeAreaProvider>
       </QueryClientProvider>

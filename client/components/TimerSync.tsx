@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import * as Notifications from "expo-notifications";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useTimerStore } from "@/stores/timerStore";
 import { TIMER_CONSTANTS } from "@/stores/timerStore";
 
@@ -38,6 +39,7 @@ export function TimerSync() {
   const endTimestamp = useTimerStore((s) => s.endTimestamp);
   const fallStartTimeRemaining = useTimerStore((s) => s.fallStartTimeRemaining);
   const focusDuration = useTimerStore((s) => s.focusDuration);
+  const keepScreenOn = useTimerStore((s) => s.keepScreenOn);
   const tick = useTimerStore((s) => s.tick);
   const fallBack = useTimerStore((s) => s.fallBack);
   const onAppForeground = useTimerStore((s) => s.onAppForeground);
@@ -46,11 +48,21 @@ export function TimerSync() {
   const backgroundStartRef = useRef<number | null>(null);
   const fallTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fallAnimationRef = useRef<number | null>(null);
+  const prevStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const stateTimestampRef = useRef<number>(Date.now());
 
   useEffect(() => {
     restoreFromStorage();
     requestNotificationPermissions();
   }, [restoreFromStorage]);
+
+  useEffect(() => {
+    if (keepScreenOn) {
+      activateKeepAwakeAsync();
+    } else {
+      deactivateKeepAwake();
+    }
+  }, [keepScreenOn]);
 
   useEffect(() => {
     if ((phase !== "climbing" && phase !== "plateau") || !endTimestamp) return;
@@ -140,25 +152,75 @@ export function TimerSync() {
     };
   }, [phase, fallStartTimeRemaining, focusDuration, fallBack]);
 
+  const activeStableTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inactiveDurationRef = useRef<number>(0);
+  const activeDurationRef = useRef<number>(0);
+
   useEffect(() => {
+    const HARDWARE_LOCK_THRESHOLD_MS = 150;
+
     const sub = AppState.addEventListener("change", (nextState: AppStateStatus) => {
+      const now = Date.now();
+      const prevState = prevStateRef.current;
+      const stateDuration = now - stateTimestampRef.current;
+
+      if (prevState === "inactive") {
+        inactiveDurationRef.current = stateDuration;
+      } else if (prevState === "active") {
+        activeDurationRef.current = stateDuration;
+      }
+
       if (nextState === "active") {
-        if (backgroundStartRef.current) {
-          onAppForeground(backgroundStartRef.current);
-          backgroundStartRef.current = null;
+        if (activeStableTimeoutRef.current) {
+          clearTimeout(activeStableTimeoutRef.current);
+          activeStableTimeoutRef.current = null;
         }
+        if (backgroundStartRef.current) {
+          const startTime = backgroundStartRef.current;
+          backgroundStartRef.current = null;
+          onAppForeground(startTime, now);
+        }
+        prevStateRef.current = nextState;
+        stateTimestampRef.current = now;
         return;
       }
-      if (nextState === "background") {
-        if (phase === "climbing") {
-          notifyBoulderSlipping();
+
+      if (nextState === "background" || nextState === "inactive") {
+        const hadPendingActiveCheck = !!activeStableTimeoutRef.current;
+        if (activeStableTimeoutRef.current) {
+          clearTimeout(activeStableTimeoutRef.current);
+          activeStableTimeoutRef.current = null;
         }
-        if (phase === "climbing" || phase === "plateau") {
-          backgroundStartRef.current = Date.now();
+
+        if (nextState === "background") {
+          const isHardwareLock =
+            inactiveDurationRef.current < HARDWARE_LOCK_THRESHOLD_MS ||
+            activeDurationRef.current < HARDWARE_LOCK_THRESHOLD_MS;
+
+          if (!isHardwareLock) {
+            if (phase === "climbing") {
+              notifyBoulderSlipping();
+            }
+            if (phase === "climbing" || phase === "plateau") {
+              if (!hadPendingActiveCheck) {
+                backgroundStartRef.current = Date.now();
+              }
+            }
+          }
         }
+
+        prevStateRef.current = nextState;
+        stateTimestampRef.current = now;
       }
     });
-    return () => sub.remove();
+
+    return () => {
+      if (activeStableTimeoutRef.current) {
+        clearTimeout(activeStableTimeoutRef.current);
+        activeStableTimeoutRef.current = null;
+      }
+      sub.remove();
+    };
   }, [phase, onAppForeground]);
 
   return null;

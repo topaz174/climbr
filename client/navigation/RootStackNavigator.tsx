@@ -5,10 +5,12 @@ import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { AppColors } from "@/constants/theme";
 
 import CreateSquadScreen from "@/screens/CreateSquadScreen";
+import SettingsScreen from "@/screens/SettingsScreen";
 
 export type RootStackParamList = {
   Main: undefined;
   CreateSquad: undefined;
+  Settings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -34,6 +36,14 @@ export default function RootStackNavigator() {
         name="CreateSquad"
         component={CreateSquadScreen}
         options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="Settings"
+        component={SettingsScreen}
+        options={{
+          headerShown: false,
+          animation: "slide_from_right",
+        }}
       />
     </Stack.Navigator>
   );

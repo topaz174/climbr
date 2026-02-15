@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const END_TIMESTAMP_KEY = "@climbr_end_timestamp";
 const CHECKPOINT_METERS_KEY = "@climbr_checkpoint_meters";
 const LIFETIME_ELEVATION_KEY = "@climbr_lifetime_elevation";
+const SETTINGS_KEY = "@climbr_settings";
 const DEFAULT_FOCUS_SEC = 25 * 60;
 const DEFAULT_BREAK_SEC = 5 * 60;
 const BACKGROUND_GRACE_MS = 10000;
@@ -23,12 +24,17 @@ interface TimerState {
   showFallModal: boolean;
   metersLostInFall: number;
   fallStartTimeRemaining: number | null;
+  autoStart: boolean;
+  keepScreenOn: boolean;
+  hardcoreMode: boolean;
+  showHardcoreConfirmModal: boolean;
 }
 
 const FALL_DURATION_MS = 2000;
 
 interface TimerActions {
   startSession: () => Promise<void>;
+  setDurations: (focusSec: number, breakSec: number) => void;
   openGiveUpConfirm: () => void;
   closeGiveUpConfirm: () => void;
   confirmGiveUp: () => void;
@@ -36,8 +42,13 @@ interface TimerActions {
   fallBack: () => void;
   tick: () => void;
   syncFromEndTimestamp: () => void;
-  onAppForeground: (backgroundStartTime: number) => void;
+  onAppForeground: (backgroundStartTime: number, returnTime?: number) => void;
   restoreFromStorage: () => Promise<void>;
+  toggleAutoStart: () => void;
+  toggleKeepScreenOn: () => void;
+  requestHardcoreMode: (enable: boolean) => void;
+  confirmHardcoreMode: () => void;
+  cancelHardcoreMode: () => void;
 }
 
 const initialState: TimerState = {
@@ -53,6 +64,10 @@ const initialState: TimerState = {
   showFallModal: false,
   metersLostInFall: 0,
   fallStartTimeRemaining: null,
+  autoStart: false,
+  keepScreenOn: false,
+  hardcoreMode: false,
+  showHardcoreConfirmModal: false,
 };
 
 export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
@@ -72,37 +87,70 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
     AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endTime));
   },
 
-  openGiveUpConfirm: () => {
+  setDurations: (focusSec: number, breakSec: number) => {
     const { phase } = get();
+    set({
+      focusDuration: focusSec,
+      breakDuration: breakSec,
+      ...(phase === "idle" ? { timeRemaining: focusSec } : {}),
+    });
+  },
+
+  openGiveUpConfirm: () => {
+    const { phase, focusDuration, timeRemaining } = get();
     if (phase !== "climbing") return;
+
+    const elapsedSec = focusDuration - timeRemaining;
+    if (elapsedSec < 10) {
+      AsyncStorage.removeItem(END_TIMESTAMP_KEY);
+      set({
+        phase: "idle",
+        timeRemaining: focusDuration,
+        sessionMeters: 0,
+        endTimestamp: null,
+      });
+      return;
+    }
+
     set({ showGiveUpConfirmModal: true });
   },
 
   closeGiveUpConfirm: () => set({ showGiveUpConfirmModal: false }),
 
   confirmGiveUp: () => {
-    const { timeRemaining, sessionMeters } = get();
+    const { timeRemaining, sessionMeters, hardcoreMode, checkpointMeters } = get();
     AsyncStorage.removeItem(END_TIMESTAMP_KEY);
+    
+    if (hardcoreMode) {
+      AsyncStorage.setItem(CHECKPOINT_METERS_KEY, "0");
+    }
+    
     set({
       showGiveUpConfirmModal: false,
       phase: "fall",
       endTimestamp: null,
       fallStartTimeRemaining: timeRemaining,
-      metersLostInFall: sessionMeters,
+      metersLostInFall: hardcoreMode ? checkpointMeters + sessionMeters : sessionMeters,
     });
   },
 
   confirmProgressLost: () => {
-    const { timeRemaining } = get();
+    const { timeRemaining, hardcoreMode, checkpointMeters, sessionMeters } = get();
+    
+    if (hardcoreMode) {
+      AsyncStorage.setItem(CHECKPOINT_METERS_KEY, "0");
+    }
+    
     set({
       showFallModal: false,
       phase: "fall",
       fallStartTimeRemaining: timeRemaining,
+      metersLostInFall: hardcoreMode ? checkpointMeters + sessionMeters : sessionMeters,
     });
   },
 
   fallBack: () => {
-    const { focusDuration } = get();
+    const { focusDuration, hardcoreMode } = get();
     AsyncStorage.removeItem(END_TIMESTAMP_KEY);
     set({
       showFallModal: false,
@@ -112,6 +160,7 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
       endTimestamp: null,
       fallStartTimeRemaining: null,
       metersLostInFall: 0,
+      ...(hardcoreMode ? { checkpointMeters: 0 } : {}),
     });
   },
 
@@ -148,13 +197,26 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
     }
 
     if (phase === "plateau" && remaining === 0) {
+      const { autoStart } = get();
       AsyncStorage.removeItem(END_TIMESTAMP_KEY);
-      set({
-        phase: "idle",
-        timeRemaining: focusDuration,
-        sessionMeters: 0,
-        endTimestamp: null,
-      });
+      
+      if (autoStart) {
+        const endTime = Date.now() + focusDuration * 1000;
+        AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endTime));
+        set({
+          phase: "climbing",
+          timeRemaining: focusDuration,
+          sessionMeters: 0,
+          endTimestamp: endTime,
+        });
+      } else {
+        set({
+          phase: "idle",
+          timeRemaining: focusDuration,
+          sessionMeters: 0,
+          endTimestamp: null,
+        });
+      }
     } else if (phase === "plateau") {
       set({ timeRemaining: remaining });
     }
@@ -172,15 +234,18 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
     }
   },
 
-  onAppForeground: (backgroundStartTime: number) => {
-    const { phase, sessionMeters } = get();
-    const elapsedBackground = Date.now() - backgroundStartTime;
+  onAppForeground: (backgroundStartTime: number, returnTime: number = Date.now()) => {
+    const { phase, sessionMeters, hardcoreMode, checkpointMeters } = get();
+    const elapsedBackground = returnTime - backgroundStartTime;
 
     if (phase === "climbing" && elapsedBackground >= BACKGROUND_GRACE_MS) {
       AsyncStorage.removeItem(END_TIMESTAMP_KEY);
+      if (hardcoreMode) {
+        AsyncStorage.setItem(CHECKPOINT_METERS_KEY, "0");
+      }
       set({
         showFallModal: true,
-        metersLostInFall: sessionMeters,
+        metersLostInFall: hardcoreMode ? checkpointMeters + sessionMeters : sessionMeters,
         endTimestamp: null,
       });
       return;
@@ -190,18 +255,23 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
   },
 
   restoreFromStorage: async () => {
-    const [rawEndTime, rawCheckpoint, rawLifetime] = await Promise.all([
+    const [rawEndTime, rawCheckpoint, rawLifetime, rawSettings] = await Promise.all([
       AsyncStorage.getItem(END_TIMESTAMP_KEY),
       AsyncStorage.getItem(CHECKPOINT_METERS_KEY),
       AsyncStorage.getItem(LIFETIME_ELEVATION_KEY),
+      AsyncStorage.getItem(SETTINGS_KEY),
     ]);
 
     const savedCheckpoint = rawCheckpoint ? Number(rawCheckpoint) : 0;
     const savedLifetime = rawLifetime ? Number(rawLifetime) : 0;
+    const savedSettings = rawSettings ? JSON.parse(rawSettings) : {};
 
     set({
       checkpointMeters: savedCheckpoint,
       lifetimeElevation: savedLifetime,
+      autoStart: savedSettings.autoStart ?? false,
+      keepScreenOn: savedSettings.keepScreenOn ?? false,
+      hardcoreMode: savedSettings.hardcoreMode ?? false,
     });
 
     const savedEndTime = rawEndTime ? Number(rawEndTime) : null;
@@ -229,6 +299,50 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
     } else {
       await AsyncStorage.removeItem(END_TIMESTAMP_KEY);
     }
+  },
+
+  toggleAutoStart: () => {
+    const { autoStart } = get();
+    const newValue = !autoStart;
+    set({ autoStart: newValue });
+    AsyncStorage.getItem(SETTINGS_KEY).then((raw) => {
+      const settings = raw ? JSON.parse(raw) : {};
+      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, autoStart: newValue }));
+    });
+  },
+
+  toggleKeepScreenOn: () => {
+    const { keepScreenOn } = get();
+    const newValue = !keepScreenOn;
+    set({ keepScreenOn: newValue });
+    AsyncStorage.getItem(SETTINGS_KEY).then((raw) => {
+      const settings = raw ? JSON.parse(raw) : {};
+      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, keepScreenOn: newValue }));
+    });
+  },
+
+  requestHardcoreMode: (enable: boolean) => {
+    if (enable) {
+      set({ showHardcoreConfirmModal: true });
+    } else {
+      set({ hardcoreMode: false });
+      AsyncStorage.getItem(SETTINGS_KEY).then((raw) => {
+        const settings = raw ? JSON.parse(raw) : {};
+        AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, hardcoreMode: false }));
+      });
+    }
+  },
+
+  confirmHardcoreMode: () => {
+    set({ hardcoreMode: true, showHardcoreConfirmModal: false });
+    AsyncStorage.getItem(SETTINGS_KEY).then((raw) => {
+      const settings = raw ? JSON.parse(raw) : {};
+      AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...settings, hardcoreMode: true }));
+    });
+  },
+
+  cancelHardcoreMode: () => {
+    set({ showHardcoreConfirmModal: false });
   },
 }));
 
