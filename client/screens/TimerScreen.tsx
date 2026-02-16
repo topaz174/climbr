@@ -8,6 +8,7 @@ import Animated, {
   withSequence,
   withTiming,
   Easing,
+  useDerivedValue,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -22,6 +23,7 @@ import { WheelPicker } from "@/components/WheelPicker";
 import { Toggle } from "@/components/Toggle";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AppColors, Spacing, BorderRadius, IconSizes, Typography } from "@/constants/theme";
+import { IMMERSIVE_GRACE_SEC } from "@/constants/app";
 import { useTimerStore, type Phase } from "@/stores/timerStore";
 import { DevFeatures } from "@/components/DevFeatures"; // DELETE THIS LINE BEFORE PRODUCTION
 import { useNavigation } from "@react-navigation/native";
@@ -74,6 +76,7 @@ export default function TimerScreen() {
   const showFallModal = useTimerStore((s) => s.showFallModal);
   const metersLostInFall = useTimerStore((s) => s.metersLostInFall);
   const hardcoreMode = useTimerStore((s) => s.hardcoreMode);
+  const nextSessionIsBreak = useTimerStore((s) => s.nextSessionIsBreak);
 
   const startSession = useTimerStore((s) => s.startSession);
   const setDurations = useTimerStore((s) => s.setDurations);
@@ -81,17 +84,104 @@ export default function TimerScreen() {
   const closeGiveUpConfirm = useTimerStore((s) => s.closeGiveUpConfirm);
   const confirmGiveUp = useTimerStore((s) => s.confirmGiveUp);
   const confirmProgressLost = useTimerStore((s) => s.confirmProgressLost);
+  const skipBreak = useTimerStore((s) => s.skipBreak);
+
+  const [showSkipBreakModal, setShowSkipBreakModal] = useState(false);
 
   const [isFirstTime, setIsFirstTime] = useState(true);
   const [smartBreakEnabled, setSmartBreakEnabled] = useState(false);
   const [draftFocusMinutes, setDraftFocusMinutes] = useState(Math.floor(focusDuration / 60));
   const [draftBreakMinutes, setDraftBreakMinutes] = useState(Math.floor(breakDuration / 60));
+  const [timerPressed, setTimerPressed] = useState(false);
 
   const durationSheetRef = useRef<BottomSheetRef>(null);
   const prevPhaseRef = useRef(phase);
   const lastTapTimeRef = useRef(0);
   const longPressResetJustHappenedRef = useRef(false);
   const handTranslateY = useSharedValue(0);
+
+  // Derived state for immersive mode - fall is always immersive, climbing after IMMERSIVE_GRACE_SEC
+  const isImmersive = useDerivedValue(() => {
+    if (phase === "fall") return true;
+    if (phase === "climbing") {
+      const elapsedSeconds = focusDuration - timeRemaining;
+      return elapsedSeconds >= IMMERSIVE_GRACE_SEC;
+    }
+    return false;
+  }, [phase, timeRemaining, focusDuration]);
+
+  const wasImmersiveRef = useRef(false);
+  const isImmersiveNow = phase === "fall" || (phase === "climbing" && focusDuration - timeRemaining >= IMMERSIVE_GRACE_SEC);
+  useEffect(() => {
+    if (isImmersiveNow && !wasImmersiveRef.current) {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    wasImmersiveRef.current = isImmersiveNow;
+  }, [isImmersiveNow]);
+
+  // Shared values for synchronized animations (400ms cubic)
+  const ANIMATION_DURATION = 400;
+  const ANIMATION_EASING = Easing.bezier(0.4, 0.0, 0.2, 1); // Cubic easing
+
+  // Tab bar translate (slides down off-screen when immersive)
+  const tabBarTranslateY = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? TAB_BAR_TOTAL_HEIGHT + 20 : 0, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  // Settings button translate (slides up off-screen when immersive) and opacity (fully disappear)
+  const settingsButtonTranslateY = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? -100 : 0, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  const headerOpacity = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? 0 : 1, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  // Central container translate: non-immersive = shifted up; immersive = 0 (current non-immersive is the target)
+  const CENTRAL_SHIFT_UP = 20;
+  const centralContainerTranslateY = useDerivedValue(() => {
+    const standardOffset = -CENTRAL_SHIFT_UP; // Shift up in non-immersive so circle/timer/altitude sit higher
+    const immersiveOffset = 0; // Immersive = no extra shift (land at “perfect” position)
+    return withTiming(isImmersive.value ? immersiveOffset : standardOffset, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  // Animated styles
+  const animatedTabBarStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: tabBarTranslateY.value }],
+  }));
+
+  const animatedSettingsStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: settingsButtonTranslateY.value }],
+    opacity: headerOpacity.value,
+  }));
+
+  const animatedCentralContainerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: centralContainerTranslateY.value }],
+  }));
+
+  // Altitude scale animation - grows slightly when entering immersive mode
+  const altitudeScale = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? 1.15 : 1, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  const animatedAltitudeStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: altitudeScale.value }],
+  }));
 
   const [frozenDisplay, setFrozenDisplay] = useState<{
     timeRemaining: number;
@@ -166,6 +256,7 @@ export default function TimerScreen() {
 
   const openDurationSheet = () => {
     if (phase !== "idle") return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const focusMin = Math.floor(focusDuration / 60);
     const breakMin = Math.floor(breakDuration / 60);
     setDraftFocusMinutes(focusMin);
@@ -230,11 +321,10 @@ export default function TimerScreen() {
       handleStart();
       return;
     }
-    if (phase === "climbing") {
+    if (phase === "climbing" || phase === "plateau") {
       const now = Date.now();
       if (now - lastTapTimeRef.current < 300) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-        openGiveUpConfirm();
+        openPhaseExitModal();
         lastTapTimeRef.current = 0;
         return;
       }
@@ -242,12 +332,31 @@ export default function TimerScreen() {
     }
   };
 
+  const openPhaseExitModal = () => {
+    if (phase === "climbing") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      openGiveUpConfirm();
+    } else if (phase === "plateau") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+      setShowSkipBreakModal(true);
+    }
+  };
+
+  const handleSkipBreakCancel = () => {
+    setShowSkipBreakModal(false);
+  };
+
+  const handleSkipBreakConfirm = () => {
+    setShowSkipBreakModal(false);
+    skipBreak();
+  };
+
   const handleLongPress = () => {
-    if (phase !== "climbing") return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    const elapsedSec = focusDuration - timeRemaining;
-    if (elapsedSec < 10) longPressResetJustHappenedRef.current = true;
-    openGiveUpConfirm();
+    if (phase === "climbing") {
+      const elapsedSec = focusDuration - timeRemaining;
+      if (elapsedSec < 10) longPressResetJustHappenedRef.current = true;
+    }
+    openPhaseExitModal();
   };
 
   const handleGiveUpConfirmCancel = () => {
@@ -272,23 +381,27 @@ export default function TimerScreen() {
   };
 
   const formatAltitude = (meters: number) => {
-    return `${Math.floor(meters)}m`;
+    return Math.floor(meters);
   };
 
   // Calculate progress based on current phase (use display values when session-lost modal is open)
-  const totalDuration = displayPhase === "plateau" ? breakDuration : focusDuration;
+  const totalDuration = displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak) ? breakDuration : focusDuration;
   const progress = 1 - displayTimeRemaining / totalDuration;
   const circumference = 2 * Math.PI * PROGRESS_RING_RADIUS;
   const strokeDashoffset = circumference * (1 - progress);
 
-  // Phase labels per PRD
+  // Phase labels per PRD (idle + nextSessionIsBreak = "ready for break")
   const getPhaseLabel = () => {
-    if (displayPhase === "climbing") return "FOCUS";
-    if (displayPhase === "plateau") return "BREAK";
-    return "FOCUS";
+    if (displayPhase === "climbing") return "CLIMB";
+    if (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) return "BREAK";
+    return "CLIMB";
   };
 
+  const elapsedClimbSec = displayPhase === "climbing" ? focusDuration - displayTimeRemaining : 0;
+  const cancelSecondsLeft = Math.max(0, IMMERSIVE_GRACE_SEC - Math.floor(elapsedClimbSec));
+
   const accentColor = hardcoreMode ? AppColors.hardcoreRed : AppColors.primary;
+  const breakAccentColor = AppColors.success; // Green for break phase
 
   return (
     <ThemeProvider accentColor={accentColor}>
@@ -296,23 +409,48 @@ export default function TimerScreen() {
         {/* DELETE DEVFEATURES COMPONENT BEFORE PRODUCTION */}
         <DevFeatures />
       
-      <Pressable 
-        style={styles.settingsButton} 
-        onPress={() => {
-          Haptics.selectionAsync();
-          navigation.navigate("Settings");
-        }}
+      {/* Header - Settings button (animated, fully hidden in immersion) */}
+      <Animated.View
+        style={[styles.headerContainer, animatedSettingsStyle]}
+        pointerEvents={phase === "fall" || (phase === "climbing" && focusDuration - timeRemaining >= IMMERSIVE_GRACE_SEC) ? "none" : "auto"}
       >
-        <Feather name="settings" size={IconSizes.md} color={AppColors.iconGray} />
-      </Pressable>
+        <Pressable 
+          style={styles.settingsButton} 
+          onPress={() => {
+            Haptics.selectionAsync();
+            navigation.navigate("Settings");
+          }}
+        >
+          <Feather name="settings" size={IconSizes.md} color={AppColors.iconGray} />
+        </Pressable>
+      </Animated.View>
       
       <View style={styles.divider} />
 
-      {/* Main content area - containing both circle and text for proper distribution */}
-      <View style={styles.contentContainer}>
+      {/* Central Container - Altitude + Circle + Timer (animated) */}
+      <Animated.View style={[styles.contentContainer, animatedCentralContainerStyle]}>
+        {/* Altitude Text - Above Circle (only number + m scale in immersion) */}
+        <View style={styles.altitudePill}>
+          <View style={styles.altitudeSection}>
+            <ThemedText style={[
+              styles.altitudeLabel, 
+              { color: (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? AppColors.success : accentColor }
+            ]}>
+              ALTITUDE
+            </ThemedText>
+            <Animated.View style={[styles.altitudeValueContainer, animatedAltitudeStyle]}>
+              <Text style={styles.altitudeNumber}>
+                {formatAltitude(displayCheckpointMeters + (displayPhase === "climbing" || displayPhase === "fall" ? displaySessionMeters : 0))}
+              </Text>
+              <Text style={styles.altitudeUnit}>m</Text>
+            </Animated.View>
+          </View>
+        </View>
+
+        {/* Circle - Sisyphus Dial */}
         <Pressable
           onPress={handleDialPress}
-          onLongPress={phase === "climbing" ? handleLongPress : undefined}
+          onLongPress={(phase === "climbing" || phase === "plateau") ? handleLongPress : undefined}
           delayLongPress={600}
           pressRetentionOffset={{ top: 50, left: 50, right: 50, bottom: 50 }}
           style={styles.dialWrapper}
@@ -337,7 +475,7 @@ export default function TimerScreen() {
               cx={DIAL_SIZE / 2}
               cy={DIAL_SIZE / 2}
               r={PROGRESS_RING_RADIUS}
-              stroke={displayPhase === "plateau" ? AppColors.success : accentColor}
+              stroke={(displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? AppColors.success : accentColor}
               strokeWidth={PROGRESS_STROKE_WIDTH}
               fill="none"
               strokeDasharray={circumference}
@@ -359,24 +497,34 @@ export default function TimerScreen() {
           </View>
         </Pressable>
 
-        {/* Text section - positioned relative to circle and footer */}
-        <View style={styles.textSection}>
-          <ThemedText style={[
-            styles.focusLabel,
-            displayPhase === "plateau" ? styles.breakLabel : { color: accentColor }
-          ]}>
-            {getPhaseLabel()}
-          </ThemedText>
-            <Pressable onPress={phase === "idle" ? openDurationSheet : undefined}>
-              <ThemedText style={styles.timeText}>{formatTime(displayTimeRemaining)}</ThemedText>
-            </Pressable>
-          <View style={styles.statsRow}>
-            <ThemedText style={styles.currentAltitudeText}>
-              ALTITUDE: {formatAltitude(displayCheckpointMeters + (displayPhase === "climbing" || displayPhase === "fall" ? displaySessionMeters : 0))}
+        {/* Timer Group + cancel hint overlay (hint squeezes in above timer, no layout shift) */}
+        <View style={styles.timerGroupWrapper}>
+          {(displayPhase === "climbing" && cancelSecondsLeft >= 1) ? (
+            <View style={styles.cancelHintOverlay} pointerEvents="none">
+              <ThemedText style={styles.cancelHint}>{cancelSecondsLeft}s to cancel</ThemedText>
+            </View>
+          ) : null}
+          <View style={styles.timerGroup}>
+          <Pressable
+            onPress={phase === "idle" ? openDurationSheet : undefined}
+            onPressIn={() => phase === "idle" && setTimerPressed(true)}
+            onPressOut={() => setTimerPressed(false)}
+            hitSlop={{ top: 28, bottom: 28, left: 40, right: 40 }}
+            style={styles.timerPressable}
+          >
+            <ThemedText style={[styles.timeText, { opacity: timerPressed ? 0.7 : 1 }]}>
+              {formatTime(displayTimeRemaining)}
             </ThemedText>
-          </View>
+            <ThemedText style={[
+              styles.focusLabel,
+              (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? styles.breakLabel : { color: accentColor }
+            ]}>
+              {getPhaseLabel()}
+            </ThemedText>
+          </Pressable>
         </View>
-      </View>
+        </View>
+      </Animated.View>
 
       <BottomSheet ref={durationSheetRef} onClose={closeDurationSheet}>
         <ThemeProvider accentColor={accentColor}>
@@ -426,7 +574,7 @@ export default function TimerScreen() {
         onRequestClose={handleGiveUpConfirmCancel}
         icon="alert-circle"
         title="Give up?"
-        message="Are you sure? You'll lose this climb and go back to your last checkpoint."
+        message={hardcoreMode ? "Are you sure? Your altitude will go back to zero." : "Are you sure? You'll lose this climb and go back to your last checkpoint."}
         buttons={[
           { label: "Cancel", onPress: handleGiveUpConfirmCancel },
           { label: "Give up", onPress: handleGiveUpConfirmRestart, variant: "primary" },
@@ -437,13 +585,27 @@ export default function TimerScreen() {
         visible={showFallModal}
         onRequestClose={handleProgressLostConfirm}
         icon="alert-circle"
-        title="Session lost"
-        message={`You lost ${formatAltitude(metersLostInFall)} of progress. You're back at your last checkpoint.`}
+        title={hardcoreMode ? "You lost it all!" : "Session lost"}
+        message={hardcoreMode ? `You lost ${formatAltitude(metersLostInFall)}m of progress. Your altitude is back to zero.` : `You lost ${formatAltitude(metersLostInFall)}m of progress. You're back at your last checkpoint.`}
         buttons={[
           { label: "OK", onPress: handleProgressLostConfirm, variant: "primary" },
         ]}
         singleButton
       />
+
+      <ThemeProvider accentColor={breakAccentColor}>
+        <ConfirmModal
+          visible={showSkipBreakModal}
+          onRequestClose={handleSkipBreakCancel}
+          icon="alert-circle"
+          title="Skip break?"
+          message="Are you sure you want to end your break early?"
+          buttons={[
+            { label: "Cancel", onPress: handleSkipBreakCancel },
+            { label: "Skip", onPress: handleSkipBreakConfirm, variant: "primary" },
+          ]}
+        />
+      </ThemeProvider>
       </View>
     </ThemeProvider>
   );
@@ -493,11 +655,18 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: AppColors.divider,
   },
+  
+  headerContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 9999,
+  },
   settingsButton: {
     position: "absolute",
     top: 60,
     right: 20,
-    zIndex: 9999,
     padding: 8,
   },
   
@@ -505,7 +674,47 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "space-evenly",
     alignItems: "center",
-    paddingBottom: TAB_BAR_TOTAL_HEIGHT + Spacing["2xl"], // Increased bottom padding to push content up
+    paddingTop: Spacing["2xl"],
+    paddingBottom: TAB_BAR_TOTAL_HEIGHT + Spacing["3xl"],
+  },
+  
+  altitudePill: {
+    backgroundColor: AppColors.cardBackgroundDark,
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+  },
+  altitudeSection: {
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  
+  timerGroupWrapper: {
+    position: "relative",
+    marginTop: Spacing.xl,
+  },
+  cancelHintOverlay: {
+    position: "absolute",
+    bottom: "100%",
+    left: 0,
+    right: 0,
+    marginBottom: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cancelHint: {
+    ...Typography.tiny,
+    fontSize: 16,
+    lineHeight: 21,
+    color: AppColors.textSecondary,
+  },
+  timerGroup: {
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  timerPressable: {
+    alignItems: "center",
+    gap: Spacing.xs,
   },
   dialWrapper: {
     width: DIAL_SIZE + 24,
@@ -564,14 +773,9 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   
-  textSection: {
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: -Spacing.xl, // Negative margin to pull it closer to the circle
-  },
   focusLabel: {
     ...Typography.timerLabel,
-    textTransform: "uppercase",
+    textTransform: "uppercase" as const,
     marginTop: Spacing.sm,
   },
   breakLabel: {
@@ -585,18 +789,25 @@ const styles = StyleSheet.create({
     letterSpacing: -2,
     fontVariant: ["tabular-nums"],
   },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: Spacing.xs,
+  altitudeLabel: {
+    ...Typography.timerLabel,
+    marginBottom: 4,
+    textTransform: "uppercase" as const,
   },
-  currentAltitudeText: {
-    ...Typography.bodySmall,
-    color: AppColors.textDarkGray,
-    fontWeight: "600",
-    letterSpacing: 1,
-    textTransform: "uppercase",
+  altitudeValueContainer: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+  },
+  altitudeNumber: {
+    ...Typography.numberLarge,
+    fontSize: 41, // 15% smaller than numberLarge (48)
+    lineHeight: 48,
+    color: AppColors.text,
+  },
+  altitudeUnit: {
+    ...Typography.numberUnit,
+    color: AppColors.text, // Same color as number
   },
 
   sheetTitle: {
@@ -626,9 +837,11 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   smartBreakLabel: {
-    ...Typography.body,
-    color: AppColors.text,
-    fontWeight: "500",
+    ...Typography.small,
+    color: AppColors.textSecondary,
+    fontWeight: "600",
+    textTransform: "uppercase" as const,
+    letterSpacing: 0.8,
   },
   sheetActions: {
     flexDirection: "row",

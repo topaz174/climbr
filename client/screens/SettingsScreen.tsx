@@ -33,17 +33,14 @@ export default function SettingsScreen() {
   };
 
   const handleToggleAutoStart = () => {
-    Haptics.selectionAsync();
     toggleAutoStart();
   };
 
   const handleToggleKeepScreenOn = () => {
-    Haptics.selectionAsync();
     toggleKeepScreenOn();
   };
 
   const handleToggleHardcore = () => {
-    Haptics.selectionAsync();
     requestHardcoreMode(!hardcoreMode);
   };
 

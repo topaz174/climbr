@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { IMMERSIVE_GRACE_SEC } from "@/constants/app";
 
 const END_TIMESTAMP_KEY = "@climbr_end_timestamp";
 const CHECKPOINT_METERS_KEY = "@climbr_checkpoint_meters";
@@ -28,6 +29,8 @@ interface TimerState {
   keepScreenOn: boolean;
   hardcoreMode: boolean;
   showHardcoreConfirmModal: boolean;
+  /** When true, next startSession() starts break (plateau). Set when climb ends with autoStart off. */
+  nextSessionIsBreak: boolean;
 }
 
 const FALL_DURATION_MS = 2000;
@@ -39,6 +42,7 @@ interface TimerActions {
   closeGiveUpConfirm: () => void;
   confirmGiveUp: () => void;
   confirmProgressLost: () => void;
+  skipBreak: () => void;
   fallBack: () => void;
   tick: () => void;
   syncFromEndTimestamp: () => void;
@@ -68,23 +72,35 @@ const initialState: TimerState = {
   keepScreenOn: false,
   hardcoreMode: false,
   showHardcoreConfirmModal: false,
+  nextSessionIsBreak: false,
 };
 
 export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
   ...initialState,
 
   startSession: async () => {
-    const { phase, focusDuration } = get();
+    const { phase, focusDuration, breakDuration, nextSessionIsBreak } = get();
     if (phase !== "idle") return;
 
-    const endTime = Date.now() + focusDuration * 1000;
-    set({
-      phase: "climbing",
-      timeRemaining: focusDuration,
-      sessionMeters: 0,
-      endTimestamp: endTime,
-    });
-    AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endTime));
+    if (nextSessionIsBreak) {
+      const endBreakTime = Date.now() + breakDuration * 1000;
+      set({
+        phase: "plateau",
+        timeRemaining: breakDuration,
+        endTimestamp: endBreakTime,
+        nextSessionIsBreak: false,
+      });
+      AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endBreakTime));
+    } else {
+      const endTime = Date.now() + focusDuration * 1000;
+      set({
+        phase: "climbing",
+        timeRemaining: focusDuration,
+        sessionMeters: 0,
+        endTimestamp: endTime,
+      });
+      AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endTime));
+    }
   },
 
   setDurations: (focusSec: number, breakSec: number) => {
@@ -101,7 +117,7 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
     if (phase !== "climbing") return;
 
     const elapsedSec = focusDuration - timeRemaining;
-    if (elapsedSec < 10) {
+    if (elapsedSec < IMMERSIVE_GRACE_SEC) {
       AsyncStorage.removeItem(END_TIMESTAMP_KEY);
       set({
         phase: "idle",
@@ -116,6 +132,17 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
   },
 
   closeGiveUpConfirm: () => set({ showGiveUpConfirmModal: false }),
+
+  skipBreak: () => {
+    const { phase, focusDuration } = get();
+    if (phase !== "plateau") return;
+    AsyncStorage.removeItem(END_TIMESTAMP_KEY);
+    set({
+      phase: "idle",
+      endTimestamp: null,
+      timeRemaining: focusDuration,
+    });
+  },
 
   confirmGiveUp: () => {
     const { timeRemaining, sessionMeters, hardcoreMode, checkpointMeters } = get();
@@ -177,22 +204,36 @@ export const useTimerStore = create<TimerState & TimerActions>((set, get) => ({
     }
 
     if (phase === "climbing" && remaining === 0) {
+      const { autoStart } = get();
       const metersClimbed = Math.floor(focusDuration / 60);
-      const endBreakTime = Date.now() + breakDuration * 1000;
       const newCheckpoint = get().checkpointMeters + metersClimbed;
       const newLifetime = get().lifetimeElevation + metersClimbed;
-      
-      AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endBreakTime));
-      AsyncStorage.setItem(CHECKPOINT_METERS_KEY, String(newCheckpoint));
-      AsyncStorage.setItem(LIFETIME_ELEVATION_KEY, String(newLifetime));
-      
-      set({
-        phase: "plateau",
-        timeRemaining: breakDuration,
-        checkpointMeters: newCheckpoint,
-        lifetimeElevation: newLifetime,
-        endTimestamp: endBreakTime,
-      });
+
+      if (autoStart) {
+        const endBreakTime = Date.now() + breakDuration * 1000;
+        AsyncStorage.setItem(END_TIMESTAMP_KEY, String(endBreakTime));
+        AsyncStorage.setItem(CHECKPOINT_METERS_KEY, String(newCheckpoint));
+        AsyncStorage.setItem(LIFETIME_ELEVATION_KEY, String(newLifetime));
+        set({
+          phase: "plateau",
+          timeRemaining: breakDuration,
+          checkpointMeters: newCheckpoint,
+          lifetimeElevation: newLifetime,
+          endTimestamp: endBreakTime,
+        });
+      } else {
+        AsyncStorage.removeItem(END_TIMESTAMP_KEY);
+        AsyncStorage.setItem(CHECKPOINT_METERS_KEY, String(newCheckpoint));
+        AsyncStorage.setItem(LIFETIME_ELEVATION_KEY, String(newLifetime));
+        set({
+          phase: "idle",
+          timeRemaining: breakDuration,
+          checkpointMeters: newCheckpoint,
+          lifetimeElevation: newLifetime,
+          endTimestamp: null,
+          nextSessionIsBreak: true,
+        });
+      }
       return;
     }
 

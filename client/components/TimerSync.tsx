@@ -102,11 +102,13 @@ export function TimerSync() {
 
     if (fallStartTimeRemaining === null) return;
 
+    const state = useTimerStore.getState();
     const startTime = Date.now();
     const timeStartValue = fallStartTimeRemaining;
     const timeEndValue = focusDuration;
-    const metersStartValue = useTimerStore.getState().sessionMeters;
-    const metersEndValue = 0;
+    const sessionStartValue = state.sessionMeters;
+    const checkpointStartValue = state.checkpointMeters;
+    const hardcoreMode = state.hardcoreMode;
     const duration = TIMER_CONSTANTS.FALL_DURATION_MS;
 
     const animate = () => {
@@ -117,11 +119,16 @@ export function TimerSync() {
       const easedProgress = progress * progress;
       
       const currentTime = timeStartValue + (timeEndValue - timeStartValue) * easedProgress;
-      const currentMeters = metersStartValue + (metersEndValue - metersStartValue) * easedProgress;
-      
+      const currentSessionMeters = sessionStartValue + (0 - sessionStartValue) * easedProgress;
+      // In hardcore mode animate checkpoint down to 0 so altitude goes all the way to zero
+      const currentCheckpointMeters = hardcoreMode
+        ? checkpointStartValue + (0 - checkpointStartValue) * easedProgress
+        : checkpointStartValue;
+
       useTimerStore.setState({ 
         timeRemaining: Math.round(currentTime),
-        sessionMeters: currentMeters,
+        sessionMeters: currentSessionMeters,
+        ...(hardcoreMode ? { checkpointMeters: currentCheckpointMeters } : {}),
       });
 
       if (progress < 1) {

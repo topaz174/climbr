@@ -185,6 +185,17 @@ export const Typography = {
     fontWeight: "600" as const,
     letterSpacing: 2,
   },
+  numberLarge: {
+    fontSize: 48,
+    lineHeight: 56,
+    fontWeight: "300" as const,
+    letterSpacing: -1,
+  },
+  numberUnit: {
+    fontSize: 19, // ~30% smaller than 27
+    lineHeight: 25,
+    fontWeight: "400" as const,
+  },
   modalTitle: {
     fontSize: 24,
     lineHeight: 32,

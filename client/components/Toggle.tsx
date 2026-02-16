@@ -1,6 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet } from "react-native";
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
 import { AppColors } from "@/constants/theme";
 
 interface ToggleProps {
@@ -24,9 +25,14 @@ export function Toggle({ value, onPress, activeColor }: ToggleProps) {
     transform: [{ translateX: thumbPosition.value * 22 }],
   }));
 
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
+  };
+
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       style={[styles.track, value && { backgroundColor: color }]}
     >
       <Animated.View style={[styles.thumb, thumbStyle]} />

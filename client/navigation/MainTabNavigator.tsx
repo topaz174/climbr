@@ -9,6 +9,8 @@ import Animated, {
   withSpring,
   withTiming,
   interpolateColor,
+  useDerivedValue,
+  Easing,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -18,6 +20,7 @@ import SquadsScreen from "@/screens/SquadsScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { ThemedText } from "@/components/ThemedText";
 import { AppColors, Spacing } from "@/constants/theme";
+import { useTimerStore } from "@/stores/timerStore";
 
 export type MainTabParamList = {
   SquadsTab: undefined;
@@ -53,9 +56,54 @@ function CustomTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
   const bottomPadding = Math.max(insets.bottom, Spacing.sm);
   const isTimerActive = state.index === 1;
+  
+  // Subscribe to timer phase and time for immersive mode
+  const phase = useTimerStore((s) => s.phase);
+  const timeRemaining = useTimerStore((s) => s.timeRemaining);
+  const focusDuration = useTimerStore((s) => s.focusDuration);
+
+  // Derived state for immersive mode - fall is always immersive, climbing after 10 seconds
+  const isImmersive = useDerivedValue(() => {
+    if (phase === "fall") return true;
+    if (phase === "climbing") {
+      const elapsedSeconds = (focusDuration - timeRemaining);
+      return elapsedSeconds >= 10;
+    }
+    return false;
+  }, [phase, timeRemaining, focusDuration]);
+
+  // Animation config - same as TimerScreen for synchronization
+  const ANIMATION_DURATION = 400;
+  const ANIMATION_EASING = Easing.bezier(0.4, 0.0, 0.2, 1); // Cubic easing
+  const TAB_BAR_TOTAL_HEIGHT = TAB_BAR_HEIGHT + bottomPadding;
+
+  // Tab bar translate (slides down off-screen when immersive) and opacity (fully disappear, no glow)
+  const tabBarTranslateY = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? TAB_BAR_TOTAL_HEIGHT + 20 : 0, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  const tabBarOpacity = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? 0 : 1, {
+      duration: ANIMATION_DURATION,
+      easing: ANIMATION_EASING,
+    });
+  });
+
+  const animatedTabBarStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: tabBarTranslateY.value }],
+    opacity: tabBarOpacity.value,
+  }));
+
+  const isImmersiveMode = phase === "fall" || (phase === "climbing" && (focusDuration - timeRemaining) >= 10);
 
   return (
-    <View style={[styles.tabBarContainer, { paddingBottom: bottomPadding }]}>
+    <Animated.View
+      style={[styles.tabBarContainer, { paddingBottom: bottomPadding }, animatedTabBarStyle]}
+      pointerEvents={isImmersiveMode ? "none" : "auto"}
+    >
       <View style={styles.topDivider} />
       
       {Platform.OS === "ios" ? (
@@ -93,7 +141,7 @@ function CustomTabBar({ state, navigation }: any) {
           }}
         />
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
