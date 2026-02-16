@@ -17,14 +17,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemedText } from "@/components/ThemedText";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { BottomSheet, BottomSheetRef } from "@/components/BottomSheet";
-import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
-import { useTimerStore } from "@/stores/timerStore";
+import { Button } from "@/components/Button";
+import { WheelPicker } from "@/components/WheelPicker";
+import { Toggle } from "@/components/Toggle";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import { AppColors, Spacing, BorderRadius, IconSizes, Typography } from "@/constants/theme";
+import { useTimerStore, type Phase } from "@/stores/timerStore";
 import { DevFeatures } from "@/components/DevFeatures"; // DELETE THIS LINE BEFORE PRODUCTION
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
-const HARDCORE_RED = "#B22222";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DIAL_SIZE = Math.min(SCREEN_WIDTH * 0.82, 380);
@@ -50,7 +53,7 @@ function OnboardingHandIndicator({ translateY }: OnboardingHandIndicatorProps) {
 
   return (
     <Animated.View style={[styles.handIndicator, animatedStyle]}>
-      <MaterialCommunityIcons name="hand-pointing-up" size={64} color="rgba(255, 255, 255, 0.6)" />
+      <MaterialCommunityIcons name="hand-pointing-up" size={IconSizes["3xl"]} color={AppColors.iconLight} />
       <ThemedText style={styles.tapHint}>Tap to Start</ThemedText>
     </Animated.View>
   );
@@ -83,14 +86,37 @@ export default function TimerScreen() {
   const [smartBreakEnabled, setSmartBreakEnabled] = useState(false);
   const [draftFocusMinutes, setDraftFocusMinutes] = useState(Math.floor(focusDuration / 60));
   const [draftBreakMinutes, setDraftBreakMinutes] = useState(Math.floor(breakDuration / 60));
-  const [focusEditText, setFocusEditText] = useState("");
-  const [breakEditText, setBreakEditText] = useState("");
 
   const durationSheetRef = useRef<BottomSheetRef>(null);
   const prevPhaseRef = useRef(phase);
   const lastTapTimeRef = useRef(0);
   const longPressResetJustHappenedRef = useRef(false);
   const handTranslateY = useSharedValue(0);
+
+  const [frozenDisplay, setFrozenDisplay] = useState<{
+    timeRemaining: number;
+    phase: Phase;
+    checkpointMeters: number;
+    sessionMeters: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (showFallModal) {
+      setFrozenDisplay({
+        timeRemaining,
+        phase,
+        checkpointMeters,
+        sessionMeters,
+      });
+    } else {
+      setFrozenDisplay(null);
+    }
+  }, [showFallModal]);
+
+  const displayTimeRemaining = showFallModal && frozenDisplay ? frozenDisplay.timeRemaining : timeRemaining;
+  const displayPhase = showFallModal && frozenDisplay ? frozenDisplay.phase : phase;
+  const displayCheckpointMeters = showFallModal && frozenDisplay ? frozenDisplay.checkpointMeters : checkpointMeters;
+  const displaySessionMeters = showFallModal && frozenDisplay ? frozenDisplay.sessionMeters : sessionMeters;
 
   useEffect(() => {
     (async () => {
@@ -144,8 +170,6 @@ export default function TimerScreen() {
     const breakMin = Math.floor(breakDuration / 60);
     setDraftFocusMinutes(focusMin);
     setDraftBreakMinutes(breakMin);
-    setFocusEditText(String(focusMin));
-    setBreakEditText(String(breakMin));
     durationSheetRef.current?.open();
   };
 
@@ -159,74 +183,28 @@ export default function TimerScreen() {
     closeDurationSheet();
   };
 
-  const adjustFocus = (delta: number) => {
-    const nextFocus = clamp(draftFocusMinutes + delta, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES);
-    setDraftFocusMinutes(nextFocus);
-    setFocusEditText(String(nextFocus));
+  const handleFocusChange = (minutes: number) => {
+    setDraftFocusMinutes(minutes);
     if (smartBreakEnabled) {
-      const smartBreak = getSmartBreakMinutes(nextFocus);
+      const smartBreak = getSmartBreakMinutes(minutes);
       setDraftBreakMinutes(smartBreak);
-      setBreakEditText(String(smartBreak));
     }
   };
 
-  const adjustBreak = (delta: number) => {
-    const nextBreak = clamp(draftBreakMinutes + delta, BREAK_MIN_MINUTES, BREAK_MAX_MINUTES);
-    setDraftBreakMinutes(nextBreak);
-    setBreakEditText(String(nextBreak));
-  };
-
-  const roundToNearestFive = (value: number) => Math.round(value / 5) * 5;
-
-  const handleFocusEditEnd = () => {
-    const parsed = parseInt(focusEditText, 10);
-    if (isNaN(parsed)) {
-      setFocusEditText(String(draftFocusMinutes));
-      return;
-    }
-    const rounded = roundToNearestFive(parsed);
-    const clamped = clamp(rounded, FOCUS_MIN_MINUTES, FOCUS_MAX_MINUTES);
-    setDraftFocusMinutes(clamped);
-    setFocusEditText(String(clamped));
+  const handleBreakChange = (minutes: number) => {
+    setDraftBreakMinutes(minutes);
     if (smartBreakEnabled) {
-      const smartBreak = getSmartBreakMinutes(clamped);
-      setDraftBreakMinutes(smartBreak);
-      setBreakEditText(String(smartBreak));
+      setSmartBreakEnabled(false);
     }
-  };
-
-  const handleBreakEditEnd = () => {
-    const parsed = parseInt(breakEditText, 10);
-    if (isNaN(parsed)) {
-      setBreakEditText(String(draftBreakMinutes));
-      return;
-    }
-    const rounded = roundToNearestFive(parsed);
-    const clamped = clamp(rounded, BREAK_MIN_MINUTES, BREAK_MAX_MINUTES);
-    setDraftBreakMinutes(clamped);
-    setBreakEditText(String(clamped));
-  };
-
-  const handleFocusEditChange = (text: string) => {
-    const filtered = text.replace(/[^0-9]/g, "").slice(0, 3);
-    setFocusEditText(filtered);
-  };
-
-  const handleBreakEditChange = (text: string) => {
-    const filtered = text.replace(/[^0-9]/g, "").slice(0, 3);
-    setBreakEditText(filtered);
   };
 
   const toggleSmartBreak = () => {
-    setSmartBreakEnabled((prev) => {
-      const next = !prev;
-      if (next) {
-        const smartBreak = getSmartBreakMinutes(draftFocusMinutes);
-        setDraftBreakMinutes(smartBreak);
-        setBreakEditText(String(smartBreak));
-      }
-      return next;
-    });
+    const newEnabled = !smartBreakEnabled;
+    setSmartBreakEnabled(newEnabled);
+    if (newEnabled) {
+      const smartBreak = getSmartBreakMinutes(draftFocusMinutes);
+      setDraftBreakMinutes(smartBreak);
+    }
   };
 
   const handleStart = async () => {
@@ -297,23 +275,26 @@ export default function TimerScreen() {
     return `${Math.floor(meters)}m`;
   };
 
-  // Calculate progress based on current phase
-  const totalDuration = phase === "plateau" ? breakDuration : focusDuration;
-  const progress = 1 - timeRemaining / totalDuration;
+  // Calculate progress based on current phase (use display values when session-lost modal is open)
+  const totalDuration = displayPhase === "plateau" ? breakDuration : focusDuration;
+  const progress = 1 - displayTimeRemaining / totalDuration;
   const circumference = 2 * Math.PI * PROGRESS_RING_RADIUS;
   const strokeDashoffset = circumference * (1 - progress);
 
   // Phase labels per PRD
   const getPhaseLabel = () => {
-    if (phase === "climbing") return "FOCUS";
-    if (phase === "plateau") return "BREAK";
+    if (displayPhase === "climbing") return "FOCUS";
+    if (displayPhase === "plateau") return "BREAK";
     return "FOCUS";
   };
 
+  const accentColor = hardcoreMode ? AppColors.hardcoreRed : AppColors.primary;
+
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* DELETE DEVFEATURES COMPONENT BEFORE PRODUCTION */}
-      <DevFeatures />
+    <ThemeProvider accentColor={accentColor}>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        {/* DELETE DEVFEATURES COMPONENT BEFORE PRODUCTION */}
+        <DevFeatures />
       
       <Pressable 
         style={styles.settingsButton} 
@@ -322,7 +303,7 @@ export default function TimerScreen() {
           navigation.navigate("Settings");
         }}
       >
-        <Feather name="settings" size={24} color="rgba(180, 180, 180, 0.8)" />
+        <Feather name="settings" size={IconSizes.md} color={AppColors.iconGray} />
       </Pressable>
       
       <View style={styles.divider} />
@@ -348,7 +329,7 @@ export default function TimerScreen() {
               cx={DIAL_SIZE / 2}
               cy={DIAL_SIZE / 2}
               r={PROGRESS_RING_RADIUS}
-              stroke="rgba(42, 42, 42, 0.8)"
+              stroke={AppColors.progressRingBackground}
               strokeWidth={PROGRESS_STROKE_WIDTH}
               fill="none"
             />
@@ -356,7 +337,7 @@ export default function TimerScreen() {
               cx={DIAL_SIZE / 2}
               cy={DIAL_SIZE / 2}
               r={PROGRESS_RING_RADIUS}
-              stroke={phase === "plateau" ? "#4CAF50" : (hardcoreMode ? HARDCORE_RED : AppColors.primary)}
+              stroke={displayPhase === "plateau" ? AppColors.success : accentColor}
               strokeWidth={PROGRESS_STROKE_WIDTH}
               fill="none"
               strokeDasharray={circumference}
@@ -367,12 +348,12 @@ export default function TimerScreen() {
           </Svg>
 
           <View style={styles.innerCircle}>
-            {phase === "idle" && !isFirstTime ? (
+            {displayPhase === "idle" && !isFirstTime ? (
               <View style={styles.pauseOverlay}>
-                <Feather name="play" size={72} color="rgba(255, 255, 255, 0.5)" />
+                <Feather name="play" size={IconSizes["4xl"]} color={AppColors.iconSubtle} />
               </View>
             ) : null}
-            {phase === "idle" && isFirstTime ? (
+            {displayPhase === "idle" && isFirstTime ? (
               <OnboardingHandIndicator translateY={handTranslateY} />
             ) : null}
           </View>
@@ -380,99 +361,70 @@ export default function TimerScreen() {
 
         {/* Text section - positioned relative to circle and footer */}
         <View style={styles.textSection}>
-          <ThemedText style={[styles.focusLabel, phase === "plateau" && styles.breakLabel, hardcoreMode && phase !== "plateau" && styles.hardcoreLabel]}>
+          <ThemedText style={[
+            styles.focusLabel,
+            displayPhase === "plateau" ? styles.breakLabel : { color: accentColor }
+          ]}>
             {getPhaseLabel()}
           </ThemedText>
             <Pressable onPress={phase === "idle" ? openDurationSheet : undefined}>
-              <ThemedText style={styles.timeText}>{formatTime(timeRemaining)}</ThemedText>
+              <ThemedText style={styles.timeText}>{formatTime(displayTimeRemaining)}</ThemedText>
             </Pressable>
           <View style={styles.statsRow}>
             <ThemedText style={styles.currentAltitudeText}>
-              ALTITUDE: {formatAltitude(checkpointMeters + (phase === "climbing" || phase === "fall" ? sessionMeters : 0))}
+              ALTITUDE: {formatAltitude(displayCheckpointMeters + (displayPhase === "climbing" || displayPhase === "fall" ? displaySessionMeters : 0))}
             </ThemedText>
           </View>
         </View>
       </View>
 
-      <BottomSheet ref={durationSheetRef} snapPoints={["60%"]} onClose={closeDurationSheet}>
-        <ThemedText style={styles.sheetTitle}>Session Settings</ThemedText>
+      <BottomSheet ref={durationSheetRef} onClose={closeDurationSheet}>
+        <ThemeProvider accentColor={accentColor}>
+          <ThemedText style={styles.sheetTitle}>Session Settings</ThemedText>
 
-            <View style={styles.settingRow}>
-              <ThemedText style={styles.settingLabel}>Focus Length</ThemedText>
-              <View style={styles.stepperRow}>
-                <Pressable style={styles.stepperButton} onPress={() => adjustFocus(-STEP_MINUTES)}>
-                  <Text style={styles.stepperButtonText}>-5</Text>
-                </Pressable>
-                <View style={styles.valueEditWrap}>
-                  <TextInput
-                    style={styles.settingValueInput}
-                    value={focusEditText}
-                    onChangeText={handleFocusEditChange}
-                    onBlur={handleFocusEditEnd}
-                    onSubmitEditing={handleFocusEditEnd}
-                    keyboardType="number-pad"
-                    maxLength={3}
-                    selectTextOnFocus
-                  />
-                  <Text style={styles.valueUnit}>m</Text>
-                </View>
-                <Pressable style={styles.stepperButton} onPress={() => adjustFocus(STEP_MINUTES)}>
-                  <Text style={styles.stepperButtonText}>+5</Text>
-                </Pressable>
-              </View>
-            </View>
+          <View style={styles.pickerSection}>
+            <ThemedText style={styles.pickerLabel}>Focus Length</ThemedText>
+            <WheelPicker
+              value={draftFocusMinutes}
+              onChange={handleFocusChange}
+              min={FOCUS_MIN_MINUTES}
+              max={FOCUS_MAX_MINUTES}
+              step={5}
+            />
+          </View>
 
-            {!smartBreakEnabled ? (
-              <View style={styles.settingRow}>
-                <ThemedText style={styles.settingLabel}>Break Length</ThemedText>
-                <View style={styles.stepperRow}>
-                  <Pressable style={styles.stepperButton} onPress={() => adjustBreak(-STEP_MINUTES)}>
-                    <Text style={styles.stepperButtonText}>-5</Text>
-                  </Pressable>
-                  <View style={styles.valueEditWrap}>
-                    <TextInput
-                      style={styles.settingValueInput}
-                      value={breakEditText}
-                      onChangeText={handleBreakEditChange}
-                      onBlur={handleBreakEditEnd}
-                      onSubmitEditing={handleBreakEditEnd}
-                      keyboardType="number-pad"
-                      maxLength={3}
-                      selectTextOnFocus
-                    />
-                    <Text style={styles.valueUnit}>m</Text>
-                  </View>
-                  <Pressable style={styles.stepperButton} onPress={() => adjustBreak(STEP_MINUTES)}>
-                    <Text style={styles.stepperButtonText}>+5</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
+          <View style={styles.pickerSection}>
+            <ThemedText style={styles.pickerLabel}>Break Length</ThemedText>
+            <WheelPicker
+              value={draftBreakMinutes}
+              onChange={handleBreakChange}
+              min={BREAK_MIN_MINUTES}
+              max={BREAK_MAX_MINUTES}
+              step={5}
+              disabled={smartBreakEnabled}
+            />
+          </View>
 
-            <Pressable style={styles.smartBreakRow} onPress={toggleSmartBreak}>
-              <ThemedText style={styles.settingLabel}>Smart Break</ThemedText>
-              <View style={[styles.smartPill, smartBreakEnabled && styles.smartPillActive]}>
-                <Text style={[styles.smartPillText, smartBreakEnabled && styles.smartPillTextActive]}>
-                  {smartBreakEnabled ? "ON" : "OFF"}
-                </Text>
-              </View>
-            </Pressable>
+          <View style={styles.smartBreakRow}>
+            <ThemedText style={styles.smartBreakLabel}>Smart Break</ThemedText>
+            <Toggle value={smartBreakEnabled} onPress={toggleSmartBreak} activeColor={accentColor} />
+          </View>
 
-        <View style={styles.sheetActions}>
-          <Pressable style={[styles.sheetActionButton, styles.sheetActionCancel]} onPress={closeDurationSheet}>
-            <Text style={styles.sheetActionCancelText}>Cancel</Text>
-          </Pressable>
-          <Pressable style={[styles.sheetActionButton, styles.sheetActionApply]} onPress={applyDurations}>
-            <Text style={styles.sheetActionApplyText}>Apply</Text>
-          </Pressable>
-        </View>
+          <View style={styles.sheetActions}>
+            <Button variant="secondary" onPress={closeDurationSheet} fullWidth>
+              Cancel
+            </Button>
+            <Button variant="primary" onPress={applyDurations} fullWidth>
+              Apply
+            </Button>
+          </View>
+        </ThemeProvider>
       </BottomSheet>
 
       <ConfirmModal
         visible={showGiveUpConfirmModal}
         onRequestClose={handleGiveUpConfirmCancel}
         icon="alert-circle"
-        iconColor={AppColors.primary}
         title="Give up?"
         message="Are you sure? You'll lose this climb and go back to your last checkpoint."
         buttons={[
@@ -485,7 +437,6 @@ export default function TimerScreen() {
         visible={showFallModal}
         onRequestClose={handleProgressLostConfirm}
         icon="alert-circle"
-        iconColor={AppColors.primary}
         title="Session lost"
         message={`You lost ${formatAltitude(metersLostInFall)} of progress. You're back at your last checkpoint.`}
         buttons={[
@@ -493,7 +444,8 @@ export default function TimerScreen() {
         ]}
         singleButton
       />
-    </View>
+      </View>
+    </ThemeProvider>
   );
 }
 
@@ -512,14 +464,14 @@ const styles = StyleSheet.create({
   modeSelector: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#2C2C2C",
+    backgroundColor: AppColors.cardBackgroundDark,
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
-    borderColor: "rgba(58, 58, 58, 0.5)",
+    borderColor: AppColors.borderSubtle,
     gap: Spacing.md,
-    shadowColor: "#000",
+    shadowColor: AppColors.shadowDark,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -529,18 +481,17 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    backgroundColor: AppColors.primary,
   },
   modeText: {
-    color: "#E6E6E6",
-    fontSize: 16,
+    color: AppColors.textGray,
+    ...Typography.body,
     fontWeight: "600",
   },
   
   divider: {
     width: "100%",
     height: 1,
-    backgroundColor: "rgba(33, 33, 33, 0.6)",
+    backgroundColor: AppColors.divider,
   },
   settingsButton: {
     position: "absolute",
@@ -568,7 +519,7 @@ const styles = StyleSheet.create({
     height: DIAL_SIZE + 24,
     borderRadius: (DIAL_SIZE + 24) / 2,
     borderWidth: 8,
-    borderColor: "rgba(0, 0, 0, 0.4)",
+    borderColor: AppColors.borderDark,
   },
   middleRing: {
     position: "absolute",
@@ -576,7 +527,7 @@ const styles = StyleSheet.create({
     height: DIAL_SIZE + 12,
     borderRadius: (DIAL_SIZE + 12) / 2,
     borderWidth: 4,
-    borderColor: "rgba(42, 42, 42, 0.5)",
+    borderColor: AppColors.borderMedium,
   },
   progressSvg: {
     position: "absolute",
@@ -587,14 +538,14 @@ const styles = StyleSheet.create({
     borderRadius: INNER_CIRCLE_SIZE / 2,
     backgroundColor: AppColors.white,
     borderWidth: 2,
-    borderColor: "rgba(40, 40, 40, 0.3)",
+    borderColor: AppColors.borderLight,
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
   },
   pauseOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backgroundColor: AppColors.overlay,
     justifyContent: "center",
     alignItems: "center",
     borderRadius: INNER_CIRCLE_SIZE / 2,
@@ -606,9 +557,9 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   tapHint: {
-    fontSize: 14,
+    ...Typography.small,
     fontWeight: "600",
-    color: "rgba(255, 255, 255, 0.5)",
+    color: AppColors.iconSubtle,
     letterSpacing: 0.5,
     marginTop: Spacing.sm,
   },
@@ -619,23 +570,18 @@ const styles = StyleSheet.create({
     marginTop: -Spacing.xl, // Negative margin to pull it closer to the circle
   },
   focusLabel: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: AppColors.primary,
-    letterSpacing: 2,
-    marginBottom: Spacing.xs,
+    ...Typography.timerLabel,
+    textTransform: "uppercase",
+    marginTop: Spacing.sm,
   },
   breakLabel: {
-    color: "#4CAF50",
-  },
-  hardcoreLabel: {
-    color: HARDCORE_RED,
+    color: AppColors.success,
   },
   timeText: {
     fontSize: 72,
     lineHeight: 84,
     fontWeight: "200",
-    color: "#F3F3F3",
+    color: AppColors.textLight,
     letterSpacing: -2,
     fontVariant: ["tabular-nums"],
   },
@@ -646,125 +592,47 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   currentAltitudeText: {
-    color: "#4D4D4D",
-    fontSize: 15,
+    ...Typography.bodySmall,
+    color: AppColors.textDarkGray,
     fontWeight: "600",
     letterSpacing: 1,
     textTransform: "uppercase",
   },
 
   sheetTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+    ...Typography.sectionTitle,
     color: AppColors.text,
     textAlign: "center",
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.lg,
   },
-  settingRow: {
-    gap: Spacing.sm,
+  pickerSection: {
+    marginBottom: Spacing.md,
   },
-  settingLabel: {
-    fontSize: 14,
+  pickerLabel: {
+    ...Typography.small,
     color: AppColors.textSecondary,
     fontWeight: "600",
     textTransform: "uppercase",
     letterSpacing: 0.8,
-  },
-  valueEditWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    minWidth: 80,
-    justifyContent: "center",
-  },
-  settingValueInput: {
-    textAlign: "center",
-    fontSize: 24,
-    fontWeight: "700",
-    color: AppColors.text,
-    minWidth: 48,
-    padding: 0,
-  },
-  valueUnit: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: AppColors.textSecondary,
-  },
-  stepperRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.lg,
-  },
-  stepperButton: {
-    backgroundColor: AppColors.cardBackgroundLight,
-    borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: AppColors.border,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-  },
-  stepperButtonText: {
-    color: AppColors.text,
-    fontSize: 14,
-    fontWeight: "700",
+    marginBottom: Spacing.xs,
+    paddingLeft: Spacing.md,
   },
   smartBreakRow: {
-    marginTop: Spacing.xs,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.lg,
   },
-  smartPill: {
-    minWidth: 54,
-    alignItems: "center",
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.full,
-    backgroundColor: AppColors.cardBackgroundLight,
-    borderWidth: 1,
-    borderColor: AppColors.border,
-  },
-  smartPillActive: {
-    backgroundColor: "rgba(76, 175, 80, 0.2)",
-    borderColor: "#4CAF50",
-  },
-  smartPillText: {
-    color: AppColors.textSecondary,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  smartPillTextActive: {
-    color: "#4CAF50",
+  smartBreakLabel: {
+    ...Typography.body,
+    color: AppColors.text,
+    fontWeight: "500",
   },
   sheetActions: {
     flexDirection: "row",
     gap: Spacing.md,
     marginTop: Spacing.sm,
-  },
-  sheetActionButton: {
-    flex: 1,
-    borderRadius: BorderRadius.full,
-    alignItems: "center",
-    paddingVertical: Spacing.md,
-  },
-  sheetActionCancel: {
-    backgroundColor: AppColors.cardBackgroundLight,
-    borderWidth: 1,
-    borderColor: AppColors.border,
-  },
-  sheetActionApply: {
-    backgroundColor: AppColors.primary,
-  },
-  sheetActionCancelText: {
-    color: AppColors.text,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  sheetActionApplyText: {
-    color: AppColors.text,
-    fontSize: 15,
-    fontWeight: "700",
   },
 });

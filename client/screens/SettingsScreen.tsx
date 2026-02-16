@@ -8,10 +8,8 @@ import * as Haptics from "expo-haptics";
 import { ThemedText } from "@/components/ThemedText";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { Toggle } from "@/components/Toggle";
-import { AppColors, Spacing, BorderRadius } from "@/constants/theme";
+import { AppColors, Spacing, BorderRadius, IconSizes, Typography } from "@/constants/theme";
 import { useTimerStore } from "@/stores/timerStore";
-
-const HARDCORE_RED = "#B22222";
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
@@ -63,7 +61,7 @@ export default function SettingsScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={handleBack} hitSlop={16} style={styles.backButton}>
-          <Feather name="arrow-left" size={24} color={AppColors.text} />
+          <Feather name="arrow-left" size={IconSizes.md} color={AppColors.text} />
         </Pressable>
         <ThemedText style={styles.headerTitle}>Settings</ThemedText>
         <View style={{ width: 40 }} />
@@ -85,7 +83,7 @@ export default function SettingsScreen() {
 
           <View style={styles.settingItem}>
             <ThemedText style={styles.settingLabel}>Hardcore mode</ThemedText>
-            <Toggle value={hardcoreMode} onPress={handleToggleHardcore} activeColor={HARDCORE_RED} />
+            <Toggle value={hardcoreMode} onPress={handleToggleHardcore} activeColor={AppColors.hardcoreRed} />
           </View>
         </View>
 
@@ -93,7 +91,7 @@ export default function SettingsScreen() {
           <ThemedText style={styles.sectionTitle}>App</ThemedText>
           <Pressable style={styles.settingItem}>
             <ThemedText style={styles.settingLabel}>About</ThemedText>
-            <Feather name="chevron-right" size={20} color="rgba(180, 180, 180, 0.6)" />
+            <Feather name="chevron-right" size={IconSizes.sm} color={AppColors.iconGray} />
           </Pressable>
           <View style={styles.settingItem}>
             <ThemedText style={styles.settingLabel}>Version</ThemedText>
@@ -106,8 +104,8 @@ export default function SettingsScreen() {
         visible={showHardcoreConfirmModal}
         onRequestClose={handleCancelHardcore}
         icon="alert-triangle"
-        iconColor={HARDCORE_RED}
-        iconSize={56}
+        iconColor={AppColors.hardcoreRed}
+        iconSize={IconSizes["2xl"]}
         title="Enable Hardcore Mode?"
         message="Failing or giving up will reset your altitude to 0m."
         buttons={[
@@ -139,8 +137,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: "700",
+    ...Typography.sectionTitle,
     color: AppColors.text,
   },
   content: {
@@ -154,11 +151,9 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: "600",
+    ...Typography.label,
     color: AppColors.textSecondary,
     textTransform: "uppercase",
-    letterSpacing: 1,
     marginBottom: Spacing.sm,
   },
   settingItem: {
@@ -173,12 +168,12 @@ const styles = StyleSheet.create({
     borderColor: AppColors.border,
   },
   settingLabel: {
-    fontSize: 16,
+    ...Typography.body,
     color: AppColors.text,
     fontWeight: "500",
   },
   settingValue: {
-    fontSize: 15,
+    ...Typography.bodySmall,
     color: AppColors.textSecondary,
     fontWeight: "500",
   },

@@ -39,7 +39,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#3e3e3e",
+    backgroundColor: AppColors.toggleTrack,
     padding: 3,
     justifyContent: "center",
   },
@@ -47,6 +47,6 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: "#f4f3f4",
+    backgroundColor: AppColors.toggleThumb,
   },
 });

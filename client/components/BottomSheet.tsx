@@ -1,6 +1,10 @@
-import React, { useMemo, forwardRef, useImperativeHandle } from "react";
-import { View, StyleSheet } from "react-native";
-import GorhomBottomSheet, { BottomSheetBackdrop, BottomSheetView } from "@gorhom/bottom-sheet";
+import React, { forwardRef, useImperativeHandle } from "react";
+import { StyleSheet } from "react-native";
+import {
+  BottomSheetModal,
+  BottomSheetBackdrop,
+  BottomSheetView,
+} from "@gorhom/bottom-sheet";
 import { AppColors, BorderRadius, Spacing } from "@/constants/theme";
 
 export interface BottomSheetRef {
@@ -15,13 +19,12 @@ interface BottomSheetProps {
 }
 
 export const BottomSheet = forwardRef<BottomSheetRef, BottomSheetProps>(
-  ({ children, snapPoints: customSnapPoints, onClose }, ref) => {
-    const bottomSheetRef = React.useRef<GorhomBottomSheet>(null);
-    const snapPoints = useMemo(() => customSnapPoints || ["50%", "75%"], [customSnapPoints]);
+  ({ children, onClose }, ref) => {
+    const bottomSheetRef = React.useRef<BottomSheetModal>(null);
 
     useImperativeHandle(ref, () => ({
-      open: () => bottomSheetRef.current?.expand(),
-      close: () => bottomSheetRef.current?.close(),
+      open: () => bottomSheetRef.current?.present(),
+      close: () => bottomSheetRef.current?.dismiss(),
     }));
 
     const renderBackdrop = React.useCallback(
@@ -38,20 +41,19 @@ export const BottomSheet = forwardRef<BottomSheetRef, BottomSheetProps>(
     );
 
     return (
-      <GorhomBottomSheet
+      <BottomSheetModal
         ref={bottomSheetRef}
-        index={-1}
-        snapPoints={snapPoints}
         enablePanDownToClose
+        enableDynamicSizing
         backdropComponent={renderBackdrop}
-        onClose={onClose}
+        onDismiss={onClose}
         backgroundStyle={styles.background}
         handleIndicatorStyle={styles.handle}
       >
         <BottomSheetView style={styles.contentContainer}>
           {children}
         </BottomSheetView>
-      </GorhomBottomSheet>
+      </BottomSheetModal>
     );
   }
 );
@@ -65,13 +67,12 @@ const styles = StyleSheet.create({
     borderColor: AppColors.border,
   },
   handle: {
-    backgroundColor: "rgba(120, 120, 120, 0.7)",
+    backgroundColor: AppColors.controlGray,
     width: 40,
     height: 4,
   },
   contentContainer: {
-    flex: 1,
     paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing["2xl"],
+    paddingBottom: Spacing.xl,
   },
 });

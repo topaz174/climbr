@@ -1,92 +1,106 @@
-import React, { ReactNode } from "react";
-import { StyleSheet, Pressable, ViewStyle, StyleProp } from "react-native";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  WithSpringConfig,
-} from "react-native-reanimated";
+import React, { ReactNode, useState } from "react";
+import { StyleSheet, Pressable, ViewStyle, StyleProp, Text } from "react-native";
+import * as Haptics from "expo-haptics";
 
-import { ThemedText } from "@/components/ThemedText";
-import { useTheme } from "@/hooks/useTheme";
-import { BorderRadius, Spacing } from "@/constants/theme";
+import { useTheme } from "@/contexts/ThemeContext";
+import { AppColors, BorderRadius, Spacing, Typography } from "@/constants/theme";
+
+type ButtonVariant = "primary" | "secondary" | "danger";
 
 interface ButtonProps {
-  onPress?: () => void;
+  onPress: () => void;
   children: ReactNode;
+  variant?: ButtonVariant;
   style?: StyleProp<ViewStyle>;
   disabled?: boolean;
+  fullWidth?: boolean;
 }
-
-const springConfig: WithSpringConfig = {
-  damping: 15,
-  mass: 0.3,
-  stiffness: 150,
-  overshootClamping: true,
-  energyThreshold: 0.001,
-};
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function Button({
   onPress,
   children,
+  variant = "primary",
   style,
   disabled = false,
+  fullWidth = false,
 }: ButtonProps) {
-  const { theme } = useTheme();
-  const scale = useSharedValue(1);
+  const { accentColor } = useTheme();
+  const [pressed, setPressed] = useState(false);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-  }));
-
-  const handlePressIn = () => {
-    if (!disabled) {
-      scale.value = withSpring(0.98, springConfig);
+  const handlePress = () => {
+    if (disabled) return;
+    if (variant === "primary") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
+    onPress();
   };
 
-  const handlePressOut = () => {
-    if (!disabled) {
-      scale.value = withSpring(1, springConfig);
+  const getBackgroundColor = () => {
+    if (variant === "primary") return accentColor;
+    if (variant === "danger") return AppColors.hardcoreRed;
+    return AppColors.cardBackgroundLight;
+  };
+
+  const getTextColor = () => {
+    if (variant === "primary" || variant === "danger") return AppColors.text;
+    return AppColors.text;
+  };
+
+  const getBorderStyle = () => {
+    if (variant === "secondary") {
+      return {
+        borderWidth: 1,
+        borderColor: AppColors.border,
+      };
     }
+    return {};
   };
 
   return (
-    <AnimatedPressable
-      onPress={disabled ? undefined : onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
+    <Pressable
+      onPress={handlePress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
       disabled={disabled}
       style={[
         styles.button,
         {
-          backgroundColor: theme.link,
-          opacity: disabled ? 0.5 : 1,
+          backgroundColor: getBackgroundColor(),
+          opacity: disabled ? 0.5 : pressed ? 0.7 : 1,
         },
+        getBorderStyle(),
+        fullWidth && styles.fullWidth,
         style,
-        animatedStyle,
       ]}
     >
-      <ThemedText
-        type="body"
-        style={[styles.buttonText, { color: theme.buttonText }]}
+      <Text
+        style={[
+          styles.buttonText,
+          {
+            color: getTextColor(),
+            fontWeight: variant === "primary" || variant === "danger" ? "700" : "600",
+          },
+        ]}
       >
         {children}
-      </ThemedText>
-    </AnimatedPressable>
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    height: Spacing.buttonHeight,
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
     borderRadius: BorderRadius.full,
     alignItems: "center",
     justifyContent: "center",
+    minHeight: 44,
+  },
+  fullWidth: {
+    flex: 1,
   },
   buttonText: {
-    fontWeight: "600",
+    ...Typography.button,
   },
 });
