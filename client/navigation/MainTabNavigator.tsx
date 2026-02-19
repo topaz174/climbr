@@ -20,6 +20,7 @@ import SquadsScreen from "@/screens/SquadsScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { ThemedText } from "@/components/ThemedText";
 import { AppColors, Spacing } from "@/constants/theme";
+import { IMMERSIVE_GRACE_SEC } from "@/constants/app";
 import { useTimerStore } from "@/stores/timerStore";
 
 export type MainTabParamList = {
@@ -67,7 +68,7 @@ function CustomTabBar({ state, navigation }: any) {
     if (phase === "fall") return true;
     if (phase === "climbing") {
       const elapsedSeconds = (focusDuration - timeRemaining);
-      return elapsedSeconds >= 10;
+      return elapsedSeconds >= IMMERSIVE_GRACE_SEC;
     }
     return false;
   }, [phase, timeRemaining, focusDuration]);
@@ -97,7 +98,7 @@ function CustomTabBar({ state, navigation }: any) {
     opacity: tabBarOpacity.value,
   }));
 
-  const isImmersiveMode = phase === "fall" || (phase === "climbing" && (focusDuration - timeRemaining) >= 10);
+  const isImmersiveMode = phase === "fall" || (phase === "climbing" && (focusDuration - timeRemaining) >= IMMERSIVE_GRACE_SEC);
 
   return (
     <Animated.View

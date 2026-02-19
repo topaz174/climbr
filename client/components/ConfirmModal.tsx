@@ -10,7 +10,7 @@ import { AppColors, Spacing, BorderRadius, Typography } from "@/constants/theme"
 interface ConfirmModalButton {
   label: string;
   onPress: () => void;
-  variant?: "default" | "danger" | "primary";
+  variant?: "default" | "danger" | "primary" | "coin" | "success";
 }
 
 interface ConfirmModalProps {
@@ -20,7 +20,8 @@ interface ConfirmModalProps {
   iconColor?: string;
   iconSize?: number;
   title: string;
-  message: string;
+  message?: string;
+  messageNode?: React.ReactNode;
   buttons: ConfirmModalButton[];
   singleButton?: boolean;
 }
@@ -33,6 +34,7 @@ export function ConfirmModal({
   iconSize = 48,
   title,
   message,
+  messageNode,
   buttons,
   singleButton = false,
 }: ConfirmModalProps) {
@@ -51,7 +53,11 @@ export function ConfirmModal({
         <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
           <Feather name={icon} size={iconSize} color={defaultIconColor} />
           <ThemedText style={styles.modalTitle}>{title}</ThemedText>
-          <ThemedText style={styles.modalMessage}>{message}</ThemedText>
+          {messageNode != null ? (
+            <View style={styles.modalMessageWrap}>{messageNode}</View>
+          ) : message != null ? (
+            <ThemedText style={styles.modalMessage}>{message}</ThemedText>
+          ) : null}
           
           <View style={[styles.modalButtons, singleButton && styles.singleButtonContainer]}>
             {buttons.map((button, index) => (
@@ -91,6 +97,9 @@ const styles = StyleSheet.create({
   modalTitle: {
     ...Typography.modalTitle,
     color: AppColors.text,
+  },
+  modalMessageWrap: {
+    width: "100%",
   },
   modalMessage: {
     ...Typography.body,

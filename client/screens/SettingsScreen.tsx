@@ -45,12 +45,10 @@ export default function SettingsScreen() {
   };
 
   const handleCancelHardcore = () => {
-    Haptics.selectionAsync();
     cancelHardcoreMode();
   };
 
   const handleConfirmHardcore = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     confirmHardcoreMode();
   };
 

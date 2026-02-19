@@ -2,6 +2,14 @@ import { useEffect, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import * as Notifications from "expo-notifications";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
+import {
+  initAlertService,
+  focusComplete,
+  breakComplete,
+  sessionLost,
+  scheduleTimerEndNotification,
+  cancelScheduledTimerNotification,
+} from "@/services/AlertService";
 import { useTimerStore } from "@/stores/timerStore";
 import { TIMER_CONSTANTS } from "@/stores/timerStore";
 
@@ -37,6 +45,7 @@ async function notifyBoulderSlipping() {
 export function TimerSync() {
   const phase = useTimerStore((s) => s.phase);
   const endTimestamp = useTimerStore((s) => s.endTimestamp);
+  const showFallModal = useTimerStore((s) => s.showFallModal);
   const fallStartTimeRemaining = useTimerStore((s) => s.fallStartTimeRemaining);
   const focusDuration = useTimerStore((s) => s.focusDuration);
   const keepScreenOn = useTimerStore((s) => s.keepScreenOn);
@@ -54,7 +63,40 @@ export function TimerSync() {
   useEffect(() => {
     restoreFromStorage();
     requestNotificationPermissions();
+    initAlertService();
   }, [restoreFromStorage]);
+
+  const transitionFromTick = useTimerStore((s) => s.transitionFromTick);
+  const clearTransitionFromTick = useTimerStore((s) => s.clearTransitionFromTick);
+  const prevPhaseRef = useRef(phase);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (!transitionFromTick) return;
+    if (prev === "climbing" && (phase === "plateau" || phase === "idle")) {
+      focusComplete();
+      clearTransitionFromTick();
+    } else if (prev === "plateau" && (phase === "idle" || phase === "climbing")) {
+      breakComplete();
+      clearTransitionFromTick();
+    }
+  }, [phase, transitionFromTick, clearTransitionFromTick]);
+
+  useEffect(() => {
+    if ((phase === "climbing" || phase === "plateau") && endTimestamp != null) {
+      scheduleTimerEndNotification(endTimestamp, phase === "plateau");
+    } else {
+      cancelScheduledTimerNotification();
+    }
+  }, [phase, endTimestamp]);
+
+  const prevShowFallModalRef = useRef(showFallModal);
+  useEffect(() => {
+    if (showFallModal && !prevShowFallModalRef.current) {
+      sessionLost();
+    }
+    prevShowFallModalRef.current = showFallModal;
+  }, [showFallModal]);
 
   useEffect(() => {
     if (keepScreenOn) {

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Dimensions, TextInput, Keyboard } from "react-native";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { View, Text, StyleSheet, Pressable, Dimensions, TextInput, Keyboard, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
@@ -7,16 +7,21 @@ import Animated, {
   withRepeat,
   withSequence,
   withTiming,
+  withSpring,
+  withDelay,
   Easing,
   useDerivedValue,
+  interpolateColor,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { ThemedText } from "@/components/ThemedText";
 import { ConfirmModal } from "@/components/ConfirmModal";
+import { CoinIcon } from "@/components/icons/CoinIcon";
 import { BottomSheet, BottomSheetRef } from "@/components/BottomSheet";
 import { Button } from "@/components/Button";
 import { WheelPicker } from "@/components/WheelPicker";
@@ -31,18 +36,23 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const DIAL_SIZE = Math.min(SCREEN_WIDTH * 0.82, 380);
 const INNER_CIRCLE_SIZE = DIAL_SIZE * 0.92;
 const PROGRESS_RING_RADIUS = (DIAL_SIZE / 2) - 8;
-const PROGRESS_STROKE_WIDTH = 12;
+const PROGRESS_STROKE_BASE = 12;
+const PROGRESS_STROKE_WIDTH = PROGRESS_STROKE_BASE * 1.2;
 const TAB_BAR_TOTAL_HEIGHT = 90;
+const IMMERSIVE_CONTENT_SCALE = (1.2 + 1) / 2;
 const FIRST_TIME_KEY = "@climbr_has_started_timer";
 const FOCUS_MIN_MINUTES = 15;
 const FOCUS_MAX_MINUTES = 120;
 const BREAK_MIN_MINUTES = 5;
 const BREAK_MAX_MINUTES = 30;
 const STEP_MINUTES = 5;
+
+/** Set to false to remove the icon from the dial center. */
+const SHOW_DIAL_CENTER_PLACEHOLDER = true;
 
 interface OnboardingHandIndicatorProps {
   translateY: ReturnType<typeof useSharedValue<number>>;
@@ -77,8 +87,12 @@ export default function TimerScreen() {
   const metersLostInFall = useTimerStore((s) => s.metersLostInFall);
   const hardcoreMode = useTimerStore((s) => s.hardcoreMode);
   const nextSessionIsBreak = useTimerStore((s) => s.nextSessionIsBreak);
+  const coins = useTimerStore((s) => s.coins);
+  const pendingCoinsAnimation = useTimerStore((s) => s.pendingCoinsAnimation);
+  const autoStart = useTimerStore((s) => s.autoStart);
 
   const startSession = useTimerStore((s) => s.startSession);
+  const clearPendingCoinsAnimation = useTimerStore((s) => s.clearPendingCoinsAnimation);
   const setDurations = useTimerStore((s) => s.setDurations);
   const openGiveUpConfirm = useTimerStore((s) => s.openGiveUpConfirm);
   const closeGiveUpConfirm = useTimerStore((s) => s.closeGiveUpConfirm);
@@ -87,6 +101,8 @@ export default function TimerScreen() {
   const skipBreak = useTimerStore((s) => s.skipBreak);
 
   const [showSkipBreakModal, setShowSkipBreakModal] = useState(false);
+  const [showSessionCompleteModal, setShowSessionCompleteModal] = useState(false);
+  const [coinsJustClaimed, setCoinsJustClaimed] = useState(0);
 
   const [isFirstTime, setIsFirstTime] = useState(true);
   const [smartBreakEnabled, setSmartBreakEnabled] = useState(false);
@@ -95,7 +111,6 @@ export default function TimerScreen() {
   const [timerPressed, setTimerPressed] = useState(false);
 
   const durationSheetRef = useRef<BottomSheetRef>(null);
-  const prevPhaseRef = useRef(phase);
   const lastTapTimeRef = useRef(0);
   const longPressResetJustHappenedRef = useRef(false);
   const handTranslateY = useSharedValue(0);
@@ -112,11 +127,16 @@ export default function TimerScreen() {
 
   const wasImmersiveRef = useRef(false);
   const isImmersiveNow = phase === "fall" || (phase === "climbing" && focusDuration - timeRemaining >= IMMERSIVE_GRACE_SEC);
+  const immersionBgProgress = useSharedValue(isImmersiveNow ? 1 : 0);
   useEffect(() => {
     if (isImmersiveNow && !wasImmersiveRef.current) {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
     wasImmersiveRef.current = isImmersiveNow;
+    immersionBgProgress.value = withTiming(isImmersiveNow ? 1 : 0, {
+      duration: 700,
+      easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+    });
   }, [isImmersiveNow]);
 
   // Shared values for synchronized animations (400ms cubic)
@@ -171,16 +191,82 @@ export default function TimerScreen() {
     transform: [{ translateY: centralContainerTranslateY.value }],
   }));
 
-  // Altitude scale animation - grows slightly when entering immersive mode
-  const altitudeScale = useDerivedValue(() => {
-    return withTiming(isImmersive.value ? 1.15 : 1, {
+  // Immersive content scale - altitude and time grow by same amount in immersion (single source of truth)
+  const immersiveContentScale = useDerivedValue(() => {
+    return withTiming(isImmersive.value ? IMMERSIVE_CONTENT_SCALE : 1, {
       duration: ANIMATION_DURATION,
       easing: ANIMATION_EASING,
     });
   });
 
-  const animatedAltitudeStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: altitudeScale.value }],
+  const animatedImmersiveScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: immersiveContentScale.value }],
+  }));
+
+  const animatedContainerStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      immersionBgProgress.value,
+      [0, 1],
+      [AppColors.background, AppColors.backgroundImmersive]
+    ),
+  }));
+
+  const ImmersiveScaledBlock = useCallback(({ children }: { children: React.ReactNode }) => (
+    <Animated.View style={animatedImmersiveScaleStyle}>{children}</Animated.View>
+  ), [animatedImmersiveScaleStyle]);
+
+  const coinFlyX = useSharedValue(0);
+  const coinFlyY = useSharedValue(0);
+  const coinFlyOpacity = useSharedValue(0);
+  const coinScale = useSharedValue(1);
+
+  useEffect(() => {
+    if (phase === "idle" && pendingCoinsAnimation > 0 && !autoStart) {
+      setShowSessionCompleteModal(true);
+    }
+  }, [phase, pendingCoinsAnimation, autoStart]);
+
+  const COIN_BOUNCE_SPRING = { damping: 18, stiffness: 400 };
+  const runCoinFlyAndBounce = useCallback(() => {
+    const flyStartLeft = SCREEN_WIDTH / 2 - 80;
+    const flyEndX = 20 + 24 - flyStartLeft;
+    const flyEndY = 72 - 110;
+    coinFlyX.value = 0;
+    coinFlyY.value = 0;
+    coinFlyOpacity.value = 1;
+    coinFlyX.value = withTiming(flyEndX, { duration: 700, easing: Easing.out(Easing.cubic) });
+    coinFlyY.value = withTiming(flyEndY, { duration: 700, easing: Easing.out(Easing.cubic) });
+    coinFlyOpacity.value = withDelay(400, withTiming(0, { duration: 350 }));
+    coinScale.value = withDelay(
+      500,
+      withSequence(
+        withSpring(1.2, COIN_BOUNCE_SPRING),
+        withSpring(1, { damping: 22, stiffness: 400 })
+      )
+    );
+  }, []);
+
+  useEffect(() => {
+    if (pendingCoinsAnimation <= 0 || !autoStart) return;
+    runCoinFlyAndBounce();
+    const t = setTimeout(clearPendingCoinsAnimation, 750);
+    return () => clearTimeout(t);
+  }, [pendingCoinsAnimation, autoStart, runCoinFlyAndBounce]);
+
+  useEffect(() => {
+    if (coinsJustClaimed <= 0) return;
+    runCoinFlyAndBounce();
+    const t = setTimeout(() => setCoinsJustClaimed(0), 750);
+    return () => clearTimeout(t);
+  }, [coinsJustClaimed, runCoinFlyAndBounce]);
+
+  const animatedCoinFlyStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: coinFlyX.value }, { translateY: coinFlyY.value }],
+    opacity: coinFlyOpacity.value,
+  }));
+
+  const animatedCoinCountStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: coinScale.value }],
   }));
 
   const [frozenDisplay, setFrozenDisplay] = useState<{
@@ -218,16 +304,6 @@ export default function TimerScreen() {
       }
     })();
   }, []);
-
-  useEffect(() => {
-    if (phase === "plateau" && prevPhaseRef.current === "climbing") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    if (phase === "idle" && prevPhaseRef.current === "plateau") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    prevPhaseRef.current = phase;
-  }, [phase]);
 
   useEffect(() => {
     if (isFirstTime && phase === "idle") {
@@ -360,18 +436,22 @@ export default function TimerScreen() {
   };
 
   const handleGiveUpConfirmCancel = () => {
-    Haptics.selectionAsync();
     closeGiveUpConfirm();
   };
 
   const handleGiveUpConfirmRestart = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     confirmGiveUp();
   };
 
   const handleProgressLostConfirm = () => {
-    Haptics.selectionAsync();
     confirmProgressLost();
+  };
+
+  const handleSessionCompleteOK = () => {
+    const amount = pendingCoinsAnimation;
+    setShowSessionCompleteModal(false);
+    clearPendingCoinsAnimation();
+    if (amount > 0) setCoinsJustClaimed(amount);
   };
 
   const formatTime = (seconds: number) => {
@@ -405,15 +485,20 @@ export default function TimerScreen() {
 
   return (
     <ThemeProvider accentColor={accentColor}>
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar style="light" hidden={isImmersiveNow} />
+      <Animated.View style={[styles.container, animatedContainerStyle, { paddingTop: insets.top }]}>
         {/* DELETE DEVFEATURES COMPONENT BEFORE PRODUCTION */}
         <DevFeatures />
       
-      {/* Header - Settings button (animated, fully hidden in immersion) */}
+      {/* Header - Coins (left of settings) + Settings button (animated, fully hidden in immersion) */}
       <Animated.View
         style={[styles.headerContainer, animatedSettingsStyle]}
         pointerEvents={phase === "fall" || (phase === "climbing" && focusDuration - timeRemaining >= IMMERSIVE_GRACE_SEC) ? "none" : "auto"}
       >
+        <View style={styles.coinsRow}>
+          <CoinIcon size={23} style={styles.coinIcon} />
+          <Animated.Text style={[styles.coinCount, animatedCoinCountStyle]}>{coins}</Animated.Text>
+        </View>
         <Pressable 
           style={styles.settingsButton} 
           onPress={() => {
@@ -424,28 +509,41 @@ export default function TimerScreen() {
           <Feather name="settings" size={IconSizes.md} color={AppColors.iconGray} />
         </Pressable>
       </Animated.View>
+
+      {/* Flying +X when session ends: floats from center to coins, then bounce (auto start on: immediate; auto off: after closing claim modal) */}
+      {((pendingCoinsAnimation > 0 && autoStart) || coinsJustClaimed > 0) ? (
+        <View style={styles.coinFlyOverlay} pointerEvents="none">
+          <Animated.View style={[styles.coinFlyTextWrap, animatedCoinFlyStyle]}>
+            <Text style={[styles.coinFlyText, { color: AppColors.coinYellow }]}>
+              +{coinsJustClaimed > 0 ? coinsJustClaimed : pendingCoinsAnimation}
+            </Text>
+          </Animated.View>
+        </View>
+      ) : null}
       
       <View style={styles.divider} />
 
       {/* Central Container - Altitude + Circle + Timer (animated) */}
       <Animated.View style={[styles.contentContainer, animatedCentralContainerStyle]}>
-        {/* Altitude Text - Above Circle (only number + m scale in immersion) */}
-        <View style={styles.altitudePill}>
-          <View style={styles.altitudeSection}>
-            <ThemedText style={[
-              styles.altitudeLabel, 
-              { color: (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? AppColors.success : accentColor }
-            ]}>
-              ALTITUDE
-            </ThemedText>
-            <Animated.View style={[styles.altitudeValueContainer, animatedAltitudeStyle]}>
-              <Text style={styles.altitudeNumber}>
-                {formatAltitude(displayCheckpointMeters + (displayPhase === "climbing" || displayPhase === "fall" ? displaySessionMeters : 0))}
-              </Text>
-              <Text style={styles.altitudeUnit}>m</Text>
-            </Animated.View>
+        {/* Altitude block: pill + label + value scale together in immersion */}
+        <ImmersiveScaledBlock>
+          <View style={styles.altitudePill}>
+            <View style={styles.altitudeSection}>
+              <ThemedText style={[
+                styles.altitudeLabel,
+                { color: (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? AppColors.success : accentColor }
+              ]}>
+                ALTITUDE
+              </ThemedText>
+              <View style={styles.altitudeValueContainer}>
+                <Text style={styles.altitudeNumber}>
+                  {formatAltitude(displayCheckpointMeters + (displayPhase === "climbing" || displayPhase === "fall" ? displaySessionMeters : 0))}
+                </Text>
+                <Text style={styles.altitudeUnit}>m</Text>
+              </View>
+            </View>
           </View>
-        </View>
+        </ImmersiveScaledBlock>
 
         {/* Circle - Sisyphus Dial */}
         <Pressable
@@ -486,6 +584,13 @@ export default function TimerScreen() {
           </Svg>
 
           <View style={styles.innerCircle}>
+            {SHOW_DIAL_CENTER_PLACEHOLDER ? (
+              <Image
+                source={require("../../assets/images/icon.png")}
+                style={styles.dialCenterPlaceholder}
+                resizeMode="contain"
+              />
+            ) : null}
             {displayPhase === "idle" && !isFirstTime ? (
               <View style={styles.pauseOverlay}>
                 <Feather name="play" size={IconSizes["4xl"]} color={AppColors.iconSubtle} />
@@ -505,24 +610,26 @@ export default function TimerScreen() {
             </View>
           ) : null}
           <View style={styles.timerGroup}>
-          <Pressable
-            onPress={phase === "idle" ? openDurationSheet : undefined}
-            onPressIn={() => phase === "idle" && setTimerPressed(true)}
-            onPressOut={() => setTimerPressed(false)}
-            hitSlop={{ top: 28, bottom: 28, left: 40, right: 40 }}
-            style={styles.timerPressable}
-          >
-            <ThemedText style={[styles.timeText, { opacity: timerPressed ? 0.7 : 1 }]}>
-              {formatTime(displayTimeRemaining)}
-            </ThemedText>
-            <ThemedText style={[
-              styles.focusLabel,
-              (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? styles.breakLabel : { color: accentColor }
-            ]}>
-              {getPhaseLabel()}
-            </ThemedText>
-          </Pressable>
-        </View>
+            <ImmersiveScaledBlock>
+              <Pressable
+                onPress={phase === "idle" ? openDurationSheet : undefined}
+                onPressIn={() => phase === "idle" && setTimerPressed(true)}
+                onPressOut={() => setTimerPressed(false)}
+                hitSlop={{ top: 28, bottom: 28, left: 40, right: 40 }}
+                style={styles.timerPressable}
+              >
+                <ThemedText style={[styles.timeText, { opacity: timerPressed ? 0.7 : 1 }]}>
+                  {formatTime(displayTimeRemaining)}
+                </ThemedText>
+                <ThemedText style={[
+                  styles.focusLabel,
+                  (displayPhase === "plateau" || (displayPhase === "idle" && nextSessionIsBreak)) ? styles.breakLabel : { color: accentColor }
+                ]}>
+                  {getPhaseLabel()}
+                </ThemedText>
+              </Pressable>
+            </ImmersiveScaledBlock>
+          </View>
         </View>
       </Animated.View>
 
@@ -593,6 +700,35 @@ export default function TimerScreen() {
         singleButton
       />
 
+      <ConfirmModal
+        visible={showSessionCompleteModal}
+        onRequestClose={handleSessionCompleteOK}
+        icon="check-circle"
+        iconColor={AppColors.success}
+        title="Session complete!"
+        messageNode={
+          pendingCoinsAnimation > 0 ? (
+            <View style={styles.sessionCompleteMessage}>
+              <ThemedText style={styles.sessionCompleteText}>
+                You climbed {formatAltitude(pendingCoinsAnimation)} m and earned
+              </ThemedText>
+              <View style={styles.sessionCompleteRow}>
+                <CoinIcon size={20} style={styles.sessionCompleteCoin} />
+                <ThemedText style={styles.sessionCompleteText}> {pendingCoinsAnimation}!</ThemedText>
+              </View>
+            </View>
+          ) : null
+        }
+        buttons={[
+          {
+            label: "Claim coins",
+            onPress: handleSessionCompleteOK,
+            variant: "success",
+          },
+        ]}
+        singleButton
+      />
+
       <ThemeProvider accentColor={breakAccentColor}>
         <ConfirmModal
           visible={showSkipBreakModal}
@@ -606,7 +742,7 @@ export default function TimerScreen() {
           ]}
         />
       </ThemeProvider>
-      </View>
+      </Animated.View>
     </ThemeProvider>
   );
 }
@@ -663,9 +799,60 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 9999,
   },
+  coinsRow: {
+    position: "absolute",
+    top: 72,
+    left: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  coinIcon: {
+    opacity: 0.95,
+  },
+  coinCount: {
+    ...Typography.label,
+    fontSize: 15,
+    lineHeight: 21,
+    color: AppColors.text,
+    minWidth: 26,
+  },
+  sessionCompleteMessage: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sessionCompleteRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  sessionCompleteText: {
+    ...Typography.body,
+    color: AppColors.textSecondary,
+    textAlign: "center",
+  },
+  sessionCompleteCoin: {
+    marginRight: 4,
+  },
+  coinFlyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 9998,
+  },
+  coinFlyTextWrap: {
+    position: "absolute",
+    left: SCREEN_WIDTH / 2 - 80,
+    top: 110,
+  },
+  coinFlyText: {
+    fontSize: 22,
+    fontWeight: "700",
+  },
   settingsButton: {
     position: "absolute",
-    top: 60,
+    top: 72,
     right: 20,
     padding: 8,
   },
@@ -751,6 +938,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
+  },
+  dialCenterPlaceholder: {
+    position: "absolute",
+    width: INNER_CIRCLE_SIZE * 0.82,
+    height: INNER_CIRCLE_SIZE * 0.82,
+    left: INNER_CIRCLE_SIZE * 0.09,
+    top: INNER_CIRCLE_SIZE * 0.09,
   },
   pauseOverlay: {
     ...StyleSheet.absoluteFillObject,

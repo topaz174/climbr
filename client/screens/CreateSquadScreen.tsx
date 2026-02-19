@@ -11,7 +11,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import * as Haptics from "expo-haptics";
 
 import { ThemedText } from "@/components/ThemedText";
 import { AppColors, Spacing, BorderRadius, Typography } from "@/constants/theme";
@@ -25,7 +24,6 @@ export default function CreateSquadScreen() {
   const [course, setCourse] = useState("");
 
   const handleCreate = () => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     // In a real app, this would make an API call
     navigation.goBack();
   };

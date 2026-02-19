@@ -3,6 +3,8 @@ import { Platform } from "react-native";
 export const AppColors = {
   // Base
   background: "#1A1A1B",
+  /** Pitch black for immersion (OLED off, battery save). Use when isImmersive. */
+  backgroundImmersive: "#000000",
   surface: "#0A0A0A",
   surfaceOpacity: "rgba(10, 10, 10, 0.8)",
   
@@ -44,6 +46,9 @@ export const AppColors = {
   successLight: "rgba(76, 175, 80, 0.2)",
   warning: "#FFC107",
   live: "#FF4444",
+
+  // Coins (game-style)
+  coinYellow: "#F5B800",
   
   // Overlays & Shadows
   overlay: "rgba(0, 0, 0, 0.4)",

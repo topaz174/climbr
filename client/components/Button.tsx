@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import { useTheme } from "@/contexts/ThemeContext";
 import { AppColors, BorderRadius, Spacing, Typography } from "@/constants/theme";
 
-type ButtonVariant = "primary" | "secondary" | "danger";
+type ButtonVariant = "primary" | "secondary" | "danger" | "coin" | "success";
 
 interface ButtonProps {
   onPress: () => void;
@@ -29,20 +29,21 @@ export function Button({
 
   const handlePress = () => {
     if (disabled) return;
-    if (variant === "primary") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     onPress();
   };
 
   const getBackgroundColor = () => {
     if (variant === "primary") return accentColor;
     if (variant === "danger") return AppColors.hardcoreRed;
+    if (variant === "coin") return AppColors.coinYellow;
+    if (variant === "success") return AppColors.success;
     return AppColors.cardBackgroundLight;
   };
 
   const getTextColor = () => {
-    if (variant === "primary" || variant === "danger") return AppColors.text;
+    if (variant === "primary" || variant === "danger" || variant === "success") return AppColors.text;
+    if (variant === "coin") return AppColors.background;
     return AppColors.text;
   };
 
@@ -78,7 +79,7 @@ export function Button({
           styles.buttonText,
           {
             color: getTextColor(),
-            fontWeight: variant === "primary" || variant === "danger" ? "700" : "600",
+            fontWeight: variant === "primary" || variant === "danger" || variant === "coin" || variant === "success" ? "700" : "600",
           },
         ]}
       >
