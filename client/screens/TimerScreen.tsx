@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { View, Text, StyleSheet, Pressable, Dimensions, TextInput, Keyboard, Image } from "react-native";
+import { View, Text, StyleSheet, Pressable, Dimensions, TextInput, Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useSharedValue,
@@ -22,6 +22,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemedText } from "@/components/ThemedText";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CoinIcon } from "@/components/icons/CoinIcon";
+import { DialCenterPlaceholder } from "@/components/DialCenterPlaceholder";
 import { BottomSheet, BottomSheetRef } from "@/components/BottomSheet";
 import { Button } from "@/components/Button";
 import { WheelPicker } from "@/components/WheelPicker";
@@ -50,9 +51,6 @@ const FOCUS_MAX_MINUTES = 120;
 const BREAK_MIN_MINUTES = 5;
 const BREAK_MAX_MINUTES = 30;
 const STEP_MINUTES = 5;
-
-/** Set to false to remove the icon from the dial center. */
-const SHOW_DIAL_CENTER_PLACEHOLDER = true;
 
 interface OnboardingHandIndicatorProps {
   translateY: ReturnType<typeof useSharedValue<number>>;
@@ -584,13 +582,7 @@ export default function TimerScreen() {
           </Svg>
 
           <View style={styles.innerCircle}>
-            {SHOW_DIAL_CENTER_PLACEHOLDER ? (
-              <Image
-                source={require("../../assets/images/icon.png")}
-                style={styles.dialCenterPlaceholder}
-                resizeMode="contain"
-              />
-            ) : null}
+            <DialCenterPlaceholder size={INNER_CIRCLE_SIZE} />
             {displayPhase === "idle" && !isFirstTime ? (
               <View style={styles.pauseOverlay}>
                 <Feather name="play" size={IconSizes["4xl"]} color={AppColors.iconSubtle} />
@@ -938,13 +930,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     justifyContent: "center",
     alignItems: "center",
-  },
-  dialCenterPlaceholder: {
-    position: "absolute",
-    width: INNER_CIRCLE_SIZE * 0.82,
-    height: INNER_CIRCLE_SIZE * 0.82,
-    left: INNER_CIRCLE_SIZE * 0.09,
-    top: INNER_CIRCLE_SIZE * 0.09,
   },
   pauseOverlay: {
     ...StyleSheet.absoluteFillObject,
